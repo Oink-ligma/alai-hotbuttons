@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Perchance Relay
 // @namespace    https://perchance.org/
-// @version      1.0.1
+// @version      1.0.2
 // @description  Relays authenticated bridge messages between ChatGPT and the Perchance generator
 // @match        https://perchance.org/l99sbhokca*
 // @grant        none
@@ -28,12 +28,18 @@
     const REQUEST_TYPES = new Set([
         'nap-tm-hello',
         'nap-context-update',
+        'nap-detailed-update',
+        'nap-detailed-read',
+        'nap-detailed-save',
         'nap-bridge-ping'
     ]);
 
     const RESPONSE_TYPES = new Set([
         'nap-bridge-ready',
         'nap-context-result',
+        'nap-detailed-result',
+        'nap-detailed-read-result',
+        'nap-detailed-save-result',
         'nap-bridge-pong',
         'nap-bridge-ready-announce'
     ]);
