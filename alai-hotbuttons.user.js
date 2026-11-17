@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.9.4k
+// @version      1.9.5a
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -87,7 +87,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.9.4k)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.9.5a)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -680,6 +680,9 @@
     let bridgeAttempts = 0;
     let characters = [];
     let pendingRequestId = null;
+    let detailedPending = null;
+    let detailedBaseline = null;
+    let detailedRuns = 0;
     let autoUpdateQueued = false;
     let lastAutoKey = '';
 
@@ -813,6 +816,96 @@
     toolbar.appendChild(previewStatus);
     toolbar.appendChild(resultBox);
 
+    // Detailed Context diagnostics: manual, preview-only, never stored.
+    const detailedLabel = document.createElement('div');
+    detailedLabel.textContent = 'Detailed Context (manual diagnostics; not saved)';
+    Object.assign(detailedLabel.style, {
+        width: '100%', color: '#b9c8db', fontSize: '10px',
+        fontWeight: 'bold', marginTop: '5px'
+    });
+    const detailedStatus = document.createElement('div');
+    detailedStatus.textContent = '● IDLE — read stored context first';
+    Object.assign(detailedStatus.style, {
+        width: '100%', color: '#aaa', fontSize: '9.75px',
+        padding: '2px 3px', overflowWrap: 'anywhere'
+    });
+    const detailedBox = document.createElement('textarea');
+    detailedBox.placeholder = 'Detailed Context preview (editable, never saved)';
+    Object.assign(detailedBox.style, {
+        width: '100%', height: '115px', minHeight: '45px',
+        maxHeight: '50vh', resize: 'vertical', boxSizing: 'border-box',
+        padding: '8px', background: '#20252b', color: '#fff',
+        border: '1px solid #64748b', borderRadius: '6px',
+        fontSize: '11px', lineHeight: '1.4'
+    });
+    const detailedReadButton = makeButton('📖 Read Detailed', () => detailedRequest('read'));
+    const detailedTestButton = makeButton('🧪 Test Detailed', () => detailedRequest('update'));
+    const detailedDryButton = makeButton('🔒 Dry-run Save', () => detailedRequest('save'));
+    const detailedRow = document.createElement('div');
+    Object.assign(detailedRow.style, {
+        width: '100%', display: 'flex', flexWrap: 'wrap', gap: '5px'
+    });
+    detailedRow.append(detailedReadButton, detailedTestButton, detailedDryButton);
+    toolbar.append(detailedLabel, detailedStatus, detailedBox, detailedRow);
+
+    function setDetailedStatus(message, color = '#aaa') {
+        detailedStatus.textContent = '● ' + message;
+        detailedStatus.style.color = color;
+    }
+    function resetDetailed() {
+        detailedPending = null;
+        detailedBaseline = null;
+        detailedRuns = 0;
+        detailedBox.value = '';
+        setDetailedStatus('IDLE — read stored context first');
+        updateDetailedButtons();
+    }
+    function updateDetailedButtons() {
+        const ready = bridgeReady && !!characterSelect.value &&
+            !pendingRequestId && !detailedPending;
+        detailedReadButton.disabled = !ready;
+        detailedTestButton.disabled = !ready || !detailedBaseline;
+        detailedDryButton.disabled = !ready || !detailedBaseline || !detailedRuns;
+        for (const button of [detailedReadButton, detailedTestButton, detailedDryButton]) {
+            button.style.opacity = button.disabled ? '0.5' : '1';
+        }
+    }
+    characterSelect.addEventListener('change', resetDetailed);
+
+    function detailedRequest(action) {
+        if (!bridgeReady || !bridgeWindow || bridgeWindow.closed ||
+            pendingRequestId || detailedPending) return;
+        const characterId = characterSelect.value;
+        if (!characterId) return;
+        const requestId = crypto.randomUUID();
+        const data = { requestId, token: BRIDGE_TOKEN, characterId };
+        if (action === 'read') {
+            data.type = 'nap-detailed-read';
+        } else if (action === 'update') {
+            if (!detailedBaseline || detailedBaseline.characterId !== characterId) return;
+            const recentMessagesText = contextBox.value.trim();
+            if (!recentMessagesText || recentMessagesText.length > MAX_RECENT_CHARS) {
+                setDetailedStatus('ERROR — capture replies (max ' + MAX_RECENT_CHARS + ' chars)', '#fca5a5');
+                return;
+            }
+            data.type = 'nap-detailed-update';
+            data.recentMessagesText = recentMessagesText;
+            data.previousDetailed = detailedBaseline.previousDetailed;
+        } else if (action === 'save') {
+            if (!detailedBaseline || detailedBaseline.characterId !== characterId) return;
+            data.type = 'nap-detailed-save';
+            data.detailed = detailedBox.value;
+            data.expectedPrevious = detailedBaseline.previousDetailed;
+            data.expectedVersion = detailedBaseline.memVersionDetailed;
+            data.dryRun = true; // Hard rule: no live saves in this release.
+        } else return;
+        detailedPending = { requestId, characterId, action };
+        updateDetailedButtons();
+        setDetailedStatus('PROCESSING — ' + action + '...', '#facc15');
+        bridgeWindow.postMessage(data, WRAPPER_ORIGIN);
+    }
+
+
     // ============================================================
     // BRIDGE CONNECTION
     // ============================================================
@@ -877,6 +970,7 @@
         pendingRequestId = null;
         autoUpdateQueued = false;
         lastAutoKey = '';
+        resetDetailed();
         characters = [];
 
         setTestEnabled(false);
@@ -927,6 +1021,7 @@
             pendingRequestId = null;
             autoUpdateQueued = false;
             bridgeReady = false;
+            resetDetailed();
             setTestEnabled(false);
 
             bridgeStatus.textContent =
@@ -975,7 +1070,7 @@
             return;
         }
 
-        if (pendingRequestId) {
+        if (pendingRequestId || detailedPending) {
             autoUpdateQueued = true;
 
             setPreviewStatus(
@@ -1016,7 +1111,7 @@
             return;
         }
 
-        if (pendingRequestId) return;
+        if (pendingRequestId || detailedPending) return;
 
         const characterId = characterSelect.value;
         const recentMessagesText = contextBox.value.trim();
@@ -1070,6 +1165,7 @@
 
         pendingRequestId = requestId;
 
+        updateDetailedButtons();
         setTestEnabled(false);
 
         setPreviewStatus(
@@ -1119,6 +1215,65 @@
             return;
         }
 
+        // Detailed responses are matched by request AND selected character.
+        if (['nap-detailed-read-result', 'nap-detailed-result',
+             'nap-detailed-save-result'].includes(data.type)) {
+            if (!detailedPending || data.requestId !== detailedPending.requestId ||
+                String(data.characterId) !== detailedPending.characterId ||
+                characterSelect.value !== detailedPending.characterId) return;
+            const action = detailedPending.action;
+            const expectedType = action === 'read' ? 'nap-detailed-read-result' :
+                action === 'update' ? 'nap-detailed-result' : 'nap-detailed-save-result';
+            if (data.type !== expectedType) return;
+            detailedPending = null;
+            setTestEnabled(bridgeReady && characterSelect.options.length > 1);
+            if (data.ok && action === 'read') {
+                const previousDetailed = String(data.detailed || '');
+                detailedBaseline = {
+                    characterId: characterSelect.value,
+                    previousDetailed,
+                    memVersionDetailed: Number(data.memVersionDetailed) || 0
+                };
+                detailedRuns = 0;
+                detailedBox.value = previousDetailed;
+                setDetailedStatus('READ — ' + previousDetailed.length +
+                    ' chars; version ' + detailedBaseline.memVersionDetailed +
+                    '; prompt ' + (data.hasDetailedPrompt ? 'present' : 'MISSING') +
+                    '; enabled ' + String(data.enabled), '#86efac');
+            } else if (data.ok && action === 'update' && typeof data.detailed === 'string') {
+                // Preserve the baseline returned by the generator for a later dry-run CAS.
+                detailedBaseline = {
+                    characterId: characterSelect.value,
+                    previousDetailed: String(data.previousDetailed || ''),
+                    memVersionDetailed: Number(data.memVersionDetailed) || 0
+                };
+                detailedBox.value = data.detailed;
+                detailedRuns++;
+                setDetailedStatus('PREVIEW #' + detailedRuns + ' — ' + data.detailed.length +
+                    ' chars; stop ' + String(data.stopReason || 'unknown') +
+                    '; previous ' + detailedBaseline.previousDetailed.length +
+                    '; version ' + detailedBaseline.memVersionDetailed + ' (NOT SAVED)', '#86efac');
+            } else if (data.ok && action === 'save') {
+                setDetailedStatus('DRY RUN PASSED — no data saved; version ' +
+                    String(data.memVersionDetailed), '#86efac');
+            } else if (data.conflict) {
+                setDetailedStatus('CONFLICT — current ' +
+                    String(data.currentDetailed || '').length + ' chars; version ' +
+                    String(data.memVersionDetailed), '#fca5a5');
+            } else {
+                setDetailedStatus('ERROR — ' + String(data.error || 'unknown') +
+                    (data.stopReason ? '; stop ' + data.stopReason : '') +
+                    (data.partialLen != null ? '; partial ' + data.partialLen : ''),
+                    '#fca5a5');
+            }
+            updateDetailedButtons();
+            if (autoUpdateQueued) {
+                autoUpdateQueued = false;
+                testContext(true);
+            }
+            return;
+        }
+
         if (data.type === 'nap-bridge-ready') {
             if (!data.ok) {
                 bridgeStatus.textContent =
@@ -1141,6 +1296,7 @@
 
             bridgeReady = true;
             stopBridgePolling();
+            updateDetailedButtons();
 
             characters = Array.isArray(data.characters)
                 ? data.characters
@@ -1202,6 +1358,7 @@
             data.requestId === pendingRequestId
         ) {
             pendingRequestId = null;
+            updateDetailedButtons();
 
             setTestEnabled(
                 bridgeReady &&
