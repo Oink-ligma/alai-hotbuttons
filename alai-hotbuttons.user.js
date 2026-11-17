@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.9.4j
+// @version      1.9.4k
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -87,7 +87,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.9.4j)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.9.4k)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -397,7 +397,7 @@
             }))
             .filter(entry => entry.id && entry.text)
             .slice(-MAX_CONTEXT_REPLIES)
-            .map(entry => 'Assistant: ' + entry.text);
+            .map(entry => entry.text);
 
         let dropped = 0;
         let combined = entries.join('\n\n');
