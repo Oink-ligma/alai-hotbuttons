@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.9.5a
+// @version      1.9.5b
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -87,7 +87,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.9.5a)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.9.5b)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -683,6 +683,7 @@
     let detailedPending = null;
     let detailedBaseline = null;
     let detailedRuns = 0;
+    let detailedTimeout = null;
     let autoUpdateQueued = false;
     let lastAutoKey = '';
 
@@ -853,6 +854,8 @@
         detailedStatus.style.color = color;
     }
     function resetDetailed() {
+        clearTimeout(detailedTimeout);
+        detailedTimeout = null;
         detailedPending = null;
         detailedBaseline = null;
         detailedRuns = 0;
@@ -900,7 +903,19 @@
             data.dryRun = true; // Hard rule: no live saves in this release.
         } else return;
         detailedPending = { requestId, characterId, action };
+        characterSelect.disabled = true;
         updateDetailedButtons();
+        clearTimeout(detailedTimeout);
+        detailedTimeout = setTimeout(() => {
+            if (!detailedPending || detailedPending.requestId !== requestId) return;
+            detailedPending = null;
+            detailedTimeout = null;
+            setDetailedStatus('TIMEOUT — no response after 180 seconds; reconnect before retrying', '#fca5a5');
+            bridgeReady = false;
+            setTestEnabled(false);
+            updateDetailedButtons();
+            bridgeStatus.textContent = '◇ Perchance: reconnect after Detailed timeout';
+        }, 180000);
         setDetailedStatus('PROCESSING — ' + action + '...', '#facc15');
         bridgeWindow.postMessage(data, WRAPPER_ORIGIN);
     }
@@ -1043,6 +1058,7 @@
             pendingRequestId = null;
             autoUpdateQueued = false;
             bridgeReady = false;
+            resetDetailed();
             setTestEnabled(false);
 
             bridgeStatus.textContent =
@@ -1092,6 +1108,7 @@
             pendingRequestId = null;
             autoUpdateQueued = false;
             bridgeReady = false;
+            resetDetailed();
             setTestEnabled(false);
 
             bridgeStatus.textContent =
@@ -1226,6 +1243,8 @@
                 action === 'update' ? 'nap-detailed-result' : 'nap-detailed-save-result';
             if (data.type !== expectedType) return;
             detailedPending = null;
+            clearTimeout(detailedTimeout);
+            detailedTimeout = null;
             setTestEnabled(bridgeReady && characterSelect.options.length > 1);
             if (data.ok && action === 'read') {
                 const previousDetailed = String(data.detailed || '');
@@ -1296,7 +1315,6 @@
 
             bridgeReady = true;
             stopBridgePolling();
-            updateDetailedButtons();
 
             characters = Array.isArray(data.characters)
                 ? data.characters
@@ -1328,11 +1346,13 @@
             }
 
             characterSelect.value = '';
+            resetDetailed();
 
             setTestEnabled(
                 characterSelect.options.length > 1 &&
                 !pendingRequestId
             );
+            updateDetailedButtons();
 
             bridgeStatus.textContent =
                 '● Perchance connected (' +
