@@ -1,15 +1,14 @@
-
- // ==UserScript==
- // @name         ALAI Hotbuttons
- // @namespace    https://chatgpt.com/
- // @version      1.9.4h
- // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
- // @match        https://chatgpt.com/*
- // @grant        none
- // @run-at       document-idle
- // @updateURL    https://raw.githubusercontent.com/Oink-ligma/alai-hotbuttons/main/alai-hotbuttons.user.js
- // @downloadURL  https://raw.githubusercontent.com/Oink-ligma/alai-hotbuttons/main/alai-hotbuttons.user.js
- // ==/UserScript==
+// ==UserScript==
+// @name         ALAI Hotbuttons
+// @namespace    https://chatgpt.com/
+// @version      1.9.4i
+// @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
+// @match        https://chatgpt.com/*
+// @grant        none
+// @run-at       document-idle
+// @updateURL    https://raw.githubusercontent.com/Oink-ligma/alai-hotbuttons/main/alai-hotbuttons.user.js
+// @downloadURL  https://raw.githubusercontent.com/Oink-ligma/alai-hotbuttons/main/alai-hotbuttons.user.js
+// ==/UserScript==
 
 (function () {
     'use strict';
@@ -32,7 +31,7 @@
             prompt: 'Girls, you should know this. Check your memory journals.'
         },
         {
-            label: '❤️ Refresh Alex',
+            label: '❤️ Refresh',
             prompt: 'Alex and Aiko, open the Oink-ligma/Alex GitHub repository and read only alex-personality.md, aiko-personality.md, bill-background.txt, memory-guide.txt, and our-handoff.txt. Retrieve other files only when relevant or requested, then continue naturally.'
         },
         {
