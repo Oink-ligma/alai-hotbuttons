@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.9.8
+// @version      1.9.9
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -94,7 +94,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.9.8)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.9.9)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -859,20 +859,30 @@
     connectionLight.style.color = '#f87171';
     const connectIcon = makeButton('🔗', connectPerchance);
     connectIcon.title = 'Connect Perchance';
-    const characterIcon = makeButton('👥', () => { characterMenu.style.display = characterMenu.style.display === 'block' ? 'none' : 'block'; });
-    characterIcon.title = 'Choose character';
     const characterMenu = document.createElement('div');
-    Object.assign(characterMenu.style, { display: 'none', width: '100%' });
+    Object.assign(characterMenu.style, {
+        display: 'none', position: 'absolute', top: '100%', right: '0',
+        width: 'max-content', minWidth: '175px', maxWidth: 'min(320px, 85vw)',
+        background: '#292929', padding: '5px', border: '1px solid #777',
+        borderRadius: '6px', boxShadow: '0 4px 14px #0009', zIndex: '2'
+    });
     characterMenu.appendChild(characterSelect);
     characterSelect.style.width = '100%';
+    const characterAnchor = document.createElement('span');
+    Object.assign(characterAnchor.style, { position: 'relative', display: 'inline-flex' });
+    const characterIcon = makeButton('👥', () => {
+        characterMenu.style.display = characterMenu.style.display === 'block' ? 'none' : 'block';
+    });
+    characterIcon.title = 'Choose character';
+    characterAnchor.append(characterIcon, characterMenu);
+    characterSelect.addEventListener('change', () => { characterMenu.style.display = 'none'; });
     const captureLight = document.createElement('span');
     captureLight.textContent = '●';
     captureLight.title = 'Conversation capture status';
     function syncCaptureLight() { captureLight.style.color = captureStatus.style.color || '#aaa'; }
     new MutationObserver(syncCaptureLight).observe(captureStatus, { attributes: true, attributeFilter: ['style'], childList: true });
     syncCaptureLight();
-    const conversationSection = section('Conversation Input', 'conversationCollapsed', [captureStatus, contextBox, bridgeStatus], [connectionLight, connectIcon, characterIcon], captureLight);
-    conversationSection.appendChild(characterMenu);
+    const conversationSection = section('Conversation Input', 'conversationCollapsed', [captureStatus, contextBox, bridgeStatus], [connectionLight, connectIcon, characterAnchor], captureLight);
     panelContent.appendChild(conversationSection);
     testButton.textContent = '↻'; testButton.title = 'Refresh Context Information';
     const basicLight = document.createElement('span');
