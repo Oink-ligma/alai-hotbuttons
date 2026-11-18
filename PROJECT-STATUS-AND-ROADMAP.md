@@ -176,6 +176,16 @@ These are intentionally **not** guessed:
 
 Resolve these before declaring a production-ready outgoing feature. They need not block investigation of character-specific memory mechanisms. **Do not jump straight to outgoing injection.**
 
+## 9A. Outgoing injection prototype — browser test and visibility finding (2026-11-18)
+
+- **Implemented:** ChatGPT-side Hotbuttons v1.9.11 adds an opt-in, initially OFF outgoing `fetch` interceptor. It reads the editable Detailed Context textbox, wraps it with the tested external-memory template, and replaces the single outgoing user text part. Perchance is not involved at send time.
+- **Bill's live browser test:** Bill typed only `testing`, then sent a subsequent ordinary message. The resulting messages received by ChatGPT contained the full wrapper and updated Detailed Context, and Bill confirmed the entire combined text was visible in his user-message bubbles.
+- **Verified result:** Automatic outgoing injection works in Bill's browser for these sends; current approach **does not** provide invisible context and visibly clutters conversation history. Bill switched injection OFF.
+- **Engineering conclusion:** Treat the network-payload modification as a known-working prototype, not a clean production solution. Cosmetic DOM hiding would not remove the context from server-stored message history, and can fail on reload/edit/export.
+- **External research:** A June 2026 OpenAI developer-community report describes analogous visibility problems for ChatGPT app widget-originated messages and unreliable app-specific model-context updates. This is *not* proof that a userscript has access to those app interfaces or to a hidden supported context channel: https://community.openai.com/t/widget-originated-ui-message-now-renders-full-message-text-in-transcript-previously-hidden/1383520
+- **Next decision gate:** Determine whether an actual separate context channel is accessible from the existing ChatGPT web client, without inventing undocumented request fields or claiming that an Apps SDK mechanism works in Tampermonkey. If none is demonstrated, present the honest tradeoff: visible persisted context with optional UI cosmetics, or a different integration architecture. Preserve v1.9.11 and keep injection OFF during investigation.
+- **Priority correction:** This browser-verified injection milestone supersedes the older roadmap's 'no outgoing injection implemented' wording. Character-specific memory work remains planned, but clean delivery is the immediate blocker.
+
 ## 10. How to maintain this project file
 
 - Update **WHERE WE ARE NOW** and the roadmap when milestones are verified, not merely proposed.
