@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.9.24
+// @version      1.9.25
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -1095,7 +1095,7 @@
     function cleanInjectedUserBubbles() {
         cleanupScheduled = false;
         let cleaned = 0;
-        document.querySelectorAll('[data-markdown-text-tone="user-message"]').forEach(root => {
+        document.querySelectorAll('[data-user-message-bubble="true"] div.text-size-chat.whitespace-pre-wrap').forEach(root => {
             // React can re-render the original wrapper into a previously cleaned
             // element. Always inspect its current content rather than trusting a
             // persistent dataset marker from an earlier cleanup.
