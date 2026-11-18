@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.9.15
+// @version      1.9.16
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.9.15)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.9.16)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -1063,6 +1063,12 @@
     const bubbleObserver = new MutationObserver(scheduleBubbleCleanup);
     bubbleObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
     scheduleBubbleCleanup();
+    // ChatGPT may reconcile the user turn after the assistant reply completes.
+    // Periodic reconciliation is a fallback when that update is not observed
+    // as a DOM child/text mutation. Already-clean messages are left untouched.
+    const alaiCleanupInterval = window.setInterval(() => {
+        if (!document.hidden) scheduleBubbleCleanup();
+    }, 500);
 
     function syncLight(status, light) {
         const value = status.textContent || '';
