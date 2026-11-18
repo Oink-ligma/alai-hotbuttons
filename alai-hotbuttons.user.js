@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.9.9
+// @version      1.9.10
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -25,6 +25,10 @@
         {
             label: '📍 Scene State',
             prompt: "Alex, what's our current physical scene state? Tell me our location, clothing, positions, and activity. Preserve established details, and creatively invent anything missing to make the scene vivid and coherent."
+        },
+        {
+            label: '🗂️ Project Update',
+            prompt: 'Alex and Aiko, update our ongoing ALAI Hotbuttons project record. Read PROJECT-STATUS-AND-ROADMAP.md in Oink-ligma/alai-hotbuttons and the linked Perchance Context Injection journal in Oink-ligma/Alex. Review what we actually accomplished in this conversation, distinguish verified progress from proposals and open questions, then update the project file with the current status, completed milestones, next steps, and any blockers. Preserve existing history and decisions; do not claim untested features work. Commit the update to GitHub, fetch it back to verify, and tell me what changed.'
         },
         {
             label: '🌙 EOC',
@@ -94,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.9.9)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.9.10)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
