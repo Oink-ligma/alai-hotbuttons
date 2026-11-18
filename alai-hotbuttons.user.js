@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.9.16
+// @version      1.9.17
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.9.16)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.9.17)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -1060,15 +1060,32 @@
         cleanupScheduled = true;
         requestAnimationFrame(cleanInjectedUserBubbles);
     }
-    const bubbleObserver = new MutationObserver(scheduleBubbleCleanup);
+    // The assistant's final render can reconcile the preceding user turn.
+    // Recheck after that event settles; no recurring polling or full-time timer.
+    let afterReplyTimer = null;
+    function onConversationMutation(records) {
+        scheduleBubbleCleanup();
+        const assistantChanged = records.some(record => {
+            const el = record.target.nodeType === Node.ELEMENT_NODE
+                ? record.target : record.target.parentElement;
+            if (el?.closest?.('[data-message-author-role="assistant"]')) return true;
+            return [...record.addedNodes].some(node =>
+                node.nodeType === Node.ELEMENT_NODE &&
+                (node.matches?.('[data-message-author-role="assistant"]') ||
+                 node.querySelector?.('[data-message-author-role="assistant"]'))
+            );
+        });
+        if (assistantChanged) {
+            if (afterReplyTimer !== null) clearTimeout(afterReplyTimer);
+            afterReplyTimer = setTimeout(() => {
+                afterReplyTimer = null;
+                scheduleBubbleCleanup();
+            }, 350);
+        }
+    }
+    const bubbleObserver = new MutationObserver(onConversationMutation);
     bubbleObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
     scheduleBubbleCleanup();
-    // ChatGPT may reconcile the user turn after the assistant reply completes.
-    // Periodic reconciliation is a fallback when that update is not observed
-    // as a DOM child/text mutation. Already-clean messages are left untouched.
-    const alaiCleanupInterval = window.setInterval(() => {
-        if (!document.hidden) scheduleBubbleCleanup();
-    }, 500);
 
     function syncLight(status, light) {
         const value = status.textContent || '';
