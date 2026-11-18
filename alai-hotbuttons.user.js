@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.9.14
+// @version      1.9.15
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.9.14)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.9.15)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -1043,9 +1043,9 @@
         cleanupScheduled = false;
         let cleaned = 0;
         document.querySelectorAll('[data-markdown-text-tone="user-message"]').forEach(root => {
-            if (root.dataset.alaiDisplayCleaned === 'true') return;
-            // textContent joins the span/paragraph/list markup without needing
-            // line breaks, while our unique markers still survive intact.
+            // React can re-render the original wrapper into a previously cleaned
+            // element. Always inspect its current content rather than trusting a
+            // persistent dataset marker from an earlier cleanup.
             const original = originalFromInjectedText(root.textContent);
             if (original === null) return;
             root.textContent = original;
