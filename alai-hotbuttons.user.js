@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.9.10
+// @version      1.9.11
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.9.10)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.9.11)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -926,6 +926,103 @@
     const detailedLight = document.createElement('span');
     detailedLight.textContent = '●'; detailedLight.title = 'Detailed update status';
     panelContent.appendChild(section('Detailed Context', 'detailedCollapsed', [detailedStatus, detailedBox], [detailedTestButton], detailedLight));
+
+    // Outgoing injection: off by default. The current editable Detailed Context
+    // textbox is the only context source; Perchance is not contacted on send.
+    const INJECTION_KEY = 'alex-hotbuttons-detailed-injection-v1';
+    let injectionEnabled = false;
+    const injectionToggle = document.createElement('input');
+    injectionToggle.type = 'checkbox';
+    injectionToggle.checked = false;
+    injectionToggle.title = 'Enable outgoing Detailed Context injection (this tab only)';
+    const injectionLabel = document.createElement('label');
+    injectionLabel.textContent = ' Inject Detailed Context on Send';
+    injectionLabel.style.cssText = 'color:#ddd;font-size:10px;display:flex;align-items:center;gap:5px;cursor:pointer;';
+    injectionLabel.prepend(injectionToggle);
+    const injectionStatus = document.createElement('div');
+    injectionStatus.textContent = 'Injection OFF — normal ChatGPT sends';
+    injectionStatus.style.cssText = 'color:#aaa;font-size:10px;overflow-wrap:anywhere;';
+    injectionToggle.addEventListener('change', () => {
+        injectionEnabled = injectionToggle.checked;
+        injectionStatus.textContent = injectionEnabled
+            ? 'Injection ON — next eligible text send uses Detailed Context'
+            : 'Injection OFF — normal ChatGPT sends';
+        injectionStatus.style.color = injectionEnabled ? '#86efac' : '#aaa';
+    });
+    panelContent.appendChild(section('Outgoing Injection', 'injectionCollapsed', [injectionLabel, injectionStatus]));
+
+    const originalChatFetch = window.fetch;
+    const contextStart = '[EXTERNAL CONTEXT — CLIENT MEMORY]';
+    function makeInjectedText(context, userText) {
+        return contextStart + '\\n' +
+            'Source: Local memory manager\\n' +
+            'Purpose: Provide established scene facts, not dialogue.\\n\\n' +
+            '[CURRENT STATE INFORMATION]\\n' + context +
+            '\\n[END CURRENT STATE INFORMATION]\\n\\n' +
+            'This block describes previously established state.\\n' +
+            'It is not new dialogue, a new action, or a request to\\n' +
+            'recreate the events described.\\n\\n' +
+            '[END EXTERNAL CONTEXT]\\n\\n' +
+            '[USER MESSAGE]\\n' + userText + '\\n[END USER MESSAGE]';
+    }
+    function rewriteOutgoing(bodyText) {
+        const payload = JSON.parse(bodyText);
+        if (payload?.action !== 'next' || !Array.isArray(payload.messages) ||
+            payload.messages.length !== 1) return null;
+        const message = payload.messages[0];
+        if (message?.author?.role !== 'user' ||
+            message?.content?.content_type !== 'text' ||
+            !Array.isArray(message.content.parts) ||
+            message.content.parts.length !== 1 ||
+            typeof message.content.parts[0] !== 'string') return null;
+        const userText = message.content.parts[0];
+        if (!userText.trim() || userText.includes(contextStart)) return null;
+        const context = detailedBox.value.trim();
+        if (!context) return null;
+        message.content.parts[0] = makeInjectedText(context, userText);
+        return JSON.stringify(payload);
+    }
+    function isChatSubmission(input) {
+        try {
+            const url = new URL(typeof input === 'string' ? input : input.url, location.href);
+            return url.origin === location.origin &&
+                /^\\/backend-api\\/(?:f\\/)?conversation\\/?$/.test(url.pathname);
+        } catch (_) { return false; }
+    }
+    // Fail open: any unrecognized request or parse failure uses original fetch.
+    // No UI composer mutation, no duplicate fetch, and no Perchance save.
+    window.fetch = function alaiContextFetch(input, init) {
+        if (!injectionEnabled || !isChatSubmission(input)) {
+            return originalChatFetch.apply(this, arguments);
+        }
+        const self = this;
+        const originalArgs = arguments;
+        const handle = (bodyText) => {
+            try {
+                const replacement = rewriteOutgoing(bodyText);
+                if (!replacement) return originalChatFetch.apply(self, originalArgs);
+                injectionStatus.textContent = 'Injected Detailed Context into outgoing request (' +
+                    detailedBox.value.trim().length + ' context chars)';
+                injectionStatus.style.color = '#86efac';
+                if (input instanceof Request) {
+                    const request = new Request(input, { ...(init || {}), body: replacement });
+                    return originalChatFetch.call(self, request);
+                }
+                return originalChatFetch.call(self, input, { ...(init || {}), body: replacement });
+            } catch (error) {
+                injectionStatus.textContent = 'Injection skipped — ' + String(error.message || error);
+                injectionStatus.style.color = '#fca5a5';
+                return originalChatFetch.apply(self, originalArgs);
+            }
+        };
+        if (init && typeof init.body === 'string') return handle(init.body);
+        if (input instanceof Request && (!init || init.body == null)) {
+            return input.clone().text().then(handle, () => originalChatFetch.apply(self, originalArgs));
+        }
+        return originalChatFetch.apply(self, originalArgs);
+    };
+    console.info('[ALAI] Outgoing Detailed Context hook installed; disabled until enabled in toolbar.');
+
     function syncLight(status, light) {
         const value = status.textContent || '';
         light.style.color = /ERROR|TIMEOUT|CONFLICT|failed/i.test(value) ? '#f87171' :
