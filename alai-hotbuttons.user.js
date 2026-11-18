@@ -954,16 +954,16 @@
     const originalChatFetch = window.fetch;
     const contextStart = '[EXTERNAL CONTEXT — CLIENT MEMORY]';
     function makeInjectedText(context, userText) {
-        return contextStart + '\\n' +
-            'Source: Local memory manager\\n' +
-            'Purpose: Provide established scene facts, not dialogue.\\n\\n' +
-            '[CURRENT STATE INFORMATION]\\n' + context +
-            '\\n[END CURRENT STATE INFORMATION]\\n\\n' +
-            'This block describes previously established state.\\n' +
-            'It is not new dialogue, a new action, or a request to\\n' +
-            'recreate the events described.\\n\\n' +
-            '[END EXTERNAL CONTEXT]\\n\\n' +
-            '[USER MESSAGE]\\n' + userText + '\\n[END USER MESSAGE]';
+        return contextStart + '\n' +
+            'Source: Local memory manager\n' +
+            'Purpose: Provide established scene facts, not dialogue.\n\n' +
+            '[CURRENT STATE INFORMATION]\n' + context +
+            '\n[END CURRENT STATE INFORMATION]\n\n' +
+            'This block describes previously established state.\n' +
+            'It is not new dialogue, a new action, or a request to\n' +
+            'recreate the events described.\n\n' +
+            '[END EXTERNAL CONTEXT]\n\n' +
+            '[USER MESSAGE]\n' + userText + '\n[END USER MESSAGE]';
     }
     function rewriteOutgoing(bodyText) {
         const payload = JSON.parse(bodyText);
@@ -986,7 +986,7 @@
         try {
             const url = new URL(typeof input === 'string' ? input : input.url, location.href);
             return url.origin === location.origin &&
-                /^\\/backend-api\\/(?:f\\/)?conversation\\/?$/.test(url.pathname);
+                /^\/backend-api\/(?:f\/)?conversation\/?$/.test(url.pathname);
         } catch (_) { return false; }
     }
     // Fail open: any unrecognized request or parse failure uses original fetch.
