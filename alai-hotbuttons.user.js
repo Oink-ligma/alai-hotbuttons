@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.9.11
+// @version      1.9.12
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.9.11)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.9.12)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -1022,6 +1022,51 @@
         return originalChatFetch.apply(self, originalArgs);
     };
     console.info('[ALAI] Outgoing Detailed Context hook installed; disabled until enabled in toolbar.');
+
+    // Display-only cleanup. Server-side messages remain unchanged.
+    const userStartMarker = '[USER MESSAGE]';
+    const userEndMarker = '[END USER MESSAGE]';
+    function originalFromInjectedText(value) {
+        if (typeof value !== 'string' || !value.trimStart().startsWith(contextStart)) return null;
+        const outerEnd = value.indexOf('[END EXTERNAL CONTEXT]');
+        const start = value.indexOf(userStartMarker, outerEnd);
+        const end = value.lastIndexOf(userEndMarker);
+        if (outerEnd < 0 || start < 0 || end < start ||
+            value.slice(end + userEndMarker.length).trim()) return null;
+        let original = value.slice(start + userStartMarker.length, end);
+        if (original.startsWith('\n')) original = original.slice(1);
+        if (original.endsWith('\n')) original = original.slice(0, -1);
+        return original;
+    }
+    let cleanupScheduled = false;
+    function cleanInjectedUserBubbles() {
+        cleanupScheduled = false;
+        let cleaned = 0;
+        document.querySelectorAll('[data-message-author-role="user"]').forEach(bubble => {
+            const candidates = [bubble, ...bubble.querySelectorAll('*')];
+            const matches = candidates.filter(el =>
+                !el.closest('#alex-hotbuttons') &&
+                originalFromInjectedText(el.textContent) !== null
+            );
+            const target = matches[matches.length - 1];
+            if (!target) return;
+            const original = originalFromInjectedText(target.textContent);
+            if (original === null) return;
+            target.textContent = original;
+            target.dataset.alaiDisplayCleaned = 'true';
+            cleaned++;
+        });
+        if (cleaned) console.info('[ALAI] Cleaned', cleaned, 'injected user message bubble(s).');
+    }
+    function scheduleBubbleCleanup() {
+        if (cleanupScheduled) return;
+        cleanupScheduled = true;
+        requestAnimationFrame(cleanInjectedUserBubbles);
+    }
+    const bubbleObserver = new MutationObserver(scheduleBubbleCleanup);
+    bubbleObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
+    scheduleBubbleCleanup();
+
 
     function syncLight(status, light) {
         const value = status.textContent || '';
