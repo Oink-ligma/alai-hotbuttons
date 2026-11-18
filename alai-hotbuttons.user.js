@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.9.7
+// @version      1.9.8
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -94,7 +94,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.9.7)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.9.8)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -129,7 +129,7 @@
     panelToggle.addEventListener('click', () => { uiSettings.panelCollapsed = !uiSettings.panelCollapsed; saveUI(); applyPanelCollapse(); });
     applyPanelCollapse();
     new ResizeObserver(() => { if (!uiSettings.panelCollapsed && toolbar.offsetWidth >= 230) { uiSettings.width = toolbar.offsetWidth; saveUI(); } }).observe(toolbar);
-    function section(title, key, nodes, actions = []) {
+    function section(title, key, nodes, actions = [], statusLight = null) {
         const wrap = document.createElement('div');
         Object.assign(wrap.style, { width: '100%', minWidth: '0' });
         const header = document.createElement('div');
@@ -138,7 +138,9 @@
         toggle.style.padding = '3px 5px';
         const label = document.createElement('span'); label.textContent = title;
         label.style.flex = '1';
-        header.append(toggle, label, ...actions);
+        header.append(toggle);
+        if (statusLight) header.append(statusLight);
+        header.append(label, ...actions);
         const body = document.createElement('div');
         Object.assign(body.style, { display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' });
         body.append(...nodes);
@@ -863,13 +865,19 @@
     Object.assign(characterMenu.style, { display: 'none', width: '100%' });
     characterMenu.appendChild(characterSelect);
     characterSelect.style.width = '100%';
-    const conversationSection = section('Conversation Input', 'conversationCollapsed', [captureStatus, contextBox, bridgeStatus], [connectionLight, connectIcon, characterIcon]);
+    const captureLight = document.createElement('span');
+    captureLight.textContent = '●';
+    captureLight.title = 'Conversation capture status';
+    function syncCaptureLight() { captureLight.style.color = captureStatus.style.color || '#aaa'; }
+    new MutationObserver(syncCaptureLight).observe(captureStatus, { attributes: true, attributeFilter: ['style'], childList: true });
+    syncCaptureLight();
+    const conversationSection = section('Conversation Input', 'conversationCollapsed', [captureStatus, contextBox, bridgeStatus], [connectionLight, connectIcon, characterIcon], captureLight);
     conversationSection.appendChild(characterMenu);
     panelContent.appendChild(conversationSection);
     testButton.textContent = '↻'; testButton.title = 'Refresh Context Information';
     const basicLight = document.createElement('span');
     basicLight.textContent = '●'; basicLight.title = 'Context update status';
-    panelContent.appendChild(section('Context Information', 'basicCollapsed', [previewStatus, resultBox], [basicLight, testButton]));
+    panelContent.appendChild(section('Context Information', 'basicCollapsed', [previewStatus, resultBox], [testButton], basicLight));
 
     // Detailed Context diagnostics: manual, preview-only, never stored.
     const detailedLabel = document.createElement('div');
@@ -903,7 +911,7 @@
     detailedTestButton.textContent = '↻'; detailedTestButton.title = 'Refresh Detailed Context';
     const detailedLight = document.createElement('span');
     detailedLight.textContent = '●'; detailedLight.title = 'Detailed update status';
-    panelContent.appendChild(section('Detailed Context', 'detailedCollapsed', [detailedStatus, detailedBox], [detailedLight, detailedTestButton]));
+    panelContent.appendChild(section('Detailed Context', 'detailedCollapsed', [detailedStatus, detailedBox], [detailedTestButton], detailedLight));
     function syncLight(status, light) {
         const value = status.textContent || '';
         light.style.color = /ERROR|TIMEOUT|CONFLICT|failed/i.test(value) ? '#f87171' :
