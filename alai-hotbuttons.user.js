@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.9.5b
+// @version      1.9.6
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -87,7 +87,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.9.5b)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.9.6)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -685,6 +685,8 @@
     let detailedRuns = 0;
     let detailedTimeout = null;
     let autoUpdateQueued = false;
+    let detailedAutoQueued = false;
+    let lastDetailedAutoKey = '';
     let lastAutoKey = '';
 
     function autoWindowKey(characterId, text) {
@@ -730,7 +732,7 @@
     characterSelect.disabled = true;
 
     const testButton = makeButton(
-        '🧪 Test Context',
+        '🔄 Refresh Content',
         () => testContext(false)
     );
 
@@ -745,7 +747,6 @@
         gap: '5px'
     });
 
-    testRow.appendChild(characterSelect);
     testRow.appendChild(testButton);
 
     // ============================================================
@@ -809,17 +810,21 @@
         connectPerchance
     );
 
-    toolbar.appendChild(connectButton);
+    const connectRow = document.createElement('div');
+    Object.assign(connectRow.style, { width: '100%', display: 'flex', gap: '5px' });
+    connectButton.style.flex = '0 0 auto';
+    connectRow.append(connectButton, characterSelect);
+    toolbar.appendChild(connectRow);
     toolbar.appendChild(bridgeStatus);
-    toolbar.appendChild(testRow);
 
     toolbar.appendChild(resultLabel);
     toolbar.appendChild(previewStatus);
     toolbar.appendChild(resultBox);
+    toolbar.appendChild(testRow);
 
     // Detailed Context diagnostics: manual, preview-only, never stored.
     const detailedLabel = document.createElement('div');
-    detailedLabel.textContent = 'Detailed Context (manual diagnostics; not saved)';
+    detailedLabel.textContent = 'Detailed Context Preview (editable, not saved)';
     Object.assign(detailedLabel.style, {
         width: '100%', color: '#b9c8db', fontSize: '10px',
         fontWeight: 'bold', marginTop: '5px'
@@ -840,13 +845,13 @@
         fontSize: '11px', lineHeight: '1.4'
     });
     const detailedReadButton = makeButton('📖 Read Detailed', () => detailedRequest('read'));
-    const detailedTestButton = makeButton('🧪 Test Detailed', () => detailedRequest('update'));
+    const detailedTestButton = makeButton('🔄 Refresh Detailed', () => detailedRequest('update'));
     const detailedDryButton = makeButton('🔒 Dry-run Save', () => detailedRequest('save'));
     const detailedRow = document.createElement('div');
     Object.assign(detailedRow.style, {
         width: '100%', display: 'flex', flexWrap: 'wrap', gap: '5px'
     });
-    detailedRow.append(detailedReadButton, detailedTestButton, detailedDryButton);
+    detailedRow.append(detailedTestButton);
     toolbar.append(detailedLabel, detailedStatus, detailedBox, detailedRow);
 
     function setDetailedStatus(message, color = '#aaa') {
@@ -867,13 +872,19 @@
         const ready = bridgeReady && !!characterSelect.value &&
             !pendingRequestId && !detailedPending;
         detailedReadButton.disabled = !ready;
-        detailedTestButton.disabled = !ready || !detailedBaseline;
+        detailedTestButton.disabled = !ready;
         detailedDryButton.disabled = !ready || !detailedBaseline || !detailedRuns;
         for (const button of [detailedReadButton, detailedTestButton, detailedDryButton]) {
             button.style.opacity = button.disabled ? '0.5' : '1';
         }
     }
-    characterSelect.addEventListener('change', resetDetailed);
+    characterSelect.addEventListener('change', () => {
+        resetDetailed();
+        lastAutoKey = '';
+        lastDetailedAutoKey = '';
+        detailedAutoQueued = false;
+        if (characterSelect.value && bridgeReady) autoUpdateFromReply();
+    });
 
     function detailedRequest(action) {
         if (!bridgeReady || !bridgeWindow || bridgeWindow.closed ||
@@ -885,7 +896,11 @@
         if (action === 'read') {
             data.type = 'nap-detailed-read';
         } else if (action === 'update') {
-            if (!detailedBaseline || detailedBaseline.characterId !== characterId) return;
+            if (!detailedBaseline || detailedBaseline.characterId !== characterId) {
+                detailedAutoQueued = true;
+                detailedRequest('read');
+                return;
+            }
             const recentMessagesText = contextBox.value.trim();
             if (!recentMessagesText || recentMessagesText.length > MAX_RECENT_CHARS) {
                 setDetailedStatus('ERROR — capture replies (max ' + MAX_RECENT_CHARS + ' chars)', '#fca5a5');
@@ -984,6 +999,8 @@
         bridgeAttempts = 0;
         pendingRequestId = null;
         autoUpdateQueued = false;
+        detailedAutoQueued = false;
+        lastDetailedAutoKey = '';
         lastAutoKey = '';
         resetDetailed();
         characters = [];
@@ -1098,6 +1115,21 @@
         }
 
         testContext(true);
+    }
+
+    function autoDetailedPreview() {
+        if (!bridgeReady || !characterSelect.value || !contextBox.value.trim()) return;
+        const key = autoWindowKey(characterSelect.value, contextBox.value.trim());
+        if (key === lastDetailedAutoKey) return;
+        detailedAutoQueued = true;
+        if (pendingRequestId || detailedPending) return;
+        if (!detailedBaseline || detailedBaseline.characterId !== characterSelect.value) {
+            detailedRequest('read');
+        } else {
+            detailedAutoQueued = false;
+            lastDetailedAutoKey = key;
+            detailedRequest('update');
+        }
     }
 
     // Shared manual and automatic updater.
@@ -1286,6 +1318,12 @@
                     '#fca5a5');
             }
             updateDetailedButtons();
+            if (detailedAutoQueued && action === 'read' && data.ok) {
+                detailedAutoQueued = false;
+                lastDetailedAutoKey = autoWindowKey(characterSelect.value, contextBox.value.trim());
+                detailedRequest('update');
+                return;
+            }
             if (autoUpdateQueued) {
                 autoUpdateQueued = false;
                 testContext(true);
@@ -1404,6 +1442,7 @@
                     data
                 );
 
+                autoDetailedPreview();
                 if (autoUpdateQueued) {
                     autoUpdateQueued = false;
 
