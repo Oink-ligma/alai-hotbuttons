@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.9.18
+// @version      1.9.19
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -996,8 +996,12 @@
     function isConversationHistory(input) {
         try {
             const url = new URL(typeof input === 'string' ? input : input.url, location.href);
+            const segments = url.pathname.split('/').filter(Boolean);
             return url.origin === location.origin &&
-                /^\\/backend-api\\/conversations\\/[^/]+(?:\\/messages)?\\/?$/.test(url.pathname);
+                segments[0] === 'backend-api' &&
+                segments[1] === 'conversations' &&
+                segments.length >= 3 && segments.length <= 4 &&
+                (segments.length === 3 || segments[3] === 'messages');
         } catch (_) { return false; }
     }
     async function cleanIncomingHistory(response) {
