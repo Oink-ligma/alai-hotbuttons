@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.9.6
+// @version      1.9.7
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -16,6 +16,10 @@
     if (document.getElementById('alex-hotbuttons')) return;
 
     const POSITION_KEY = 'alex-hotbuttons-position';
+    const UI_KEY = 'alex-hotbuttons-ui-v197';
+    let uiSettings = {};
+    try { uiSettings = JSON.parse(localStorage.getItem(UI_KEY)) || {}; } catch (_) {}
+    function saveUI() { localStorage.setItem(UI_KEY, JSON.stringify(uiSettings)); }
 
     const commands = [
         {
@@ -64,8 +68,11 @@
         border: '1px solid #666',
         borderRadius: '9px',
         boxShadow: '0 4px 18px #0005',
-        width: '270px',
-        maxWidth: '270px',
+        width: Math.max(230, Math.min(800, Number(uiSettings.width) || 270)) + 'px',
+        minWidth: '230px',
+        maxWidth: 'min(800px, 95vw)',
+        resize: 'horizontal',
+        overflow: 'hidden',
         boxSizing: 'border-box'
     });
 
@@ -87,7 +94,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.9.6)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.9.7)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -103,7 +110,42 @@
         touchAction: 'none'
     });
 
+    const panelToggle = document.createElement('button');
+    panelToggle.type = 'button';
+    panelToggle.title = 'Collapse or expand Hotbuttons';
+    Object.assign(panelToggle.style, { float: 'right', cursor: 'pointer', border: '0', background: 'transparent', color: '#fff' });
+    dragHandle.appendChild(panelToggle);
     toolbar.appendChild(dragHandle);
+    const panelContent = document.createElement('div');
+    Object.assign(panelContent.style, { width: '100%', display: 'flex', flexWrap: 'wrap', gap: '4.5px' });
+    toolbar.appendChild(panelContent);
+    function applyPanelCollapse() {
+        panelContent.style.display = uiSettings.panelCollapsed ? 'none' : 'flex';
+        panelToggle.textContent = uiSettings.panelCollapsed ? '▸' : '▾';
+        toolbar.style.resize = uiSettings.panelCollapsed ? 'none' : 'horizontal';
+    }
+    panelToggle.addEventListener('pointerdown', e => e.stopPropagation());
+    panelToggle.addEventListener('click', () => { uiSettings.panelCollapsed = !uiSettings.panelCollapsed; saveUI(); applyPanelCollapse(); });
+    applyPanelCollapse();
+    new ResizeObserver(() => { if (!uiSettings.panelCollapsed && toolbar.offsetWidth >= 230) { uiSettings.width = toolbar.offsetWidth; saveUI(); } }).observe(toolbar);
+    function section(title, key, nodes, actions = []) {
+        const wrap = document.createElement('div');
+        Object.assign(wrap.style, { width: '100%', minWidth: '0' });
+        const header = document.createElement('div');
+        Object.assign(header.style, { display: 'flex', alignItems: 'center', gap: '5px', color: '#b9c8db', fontSize: '10px', fontWeight: 'bold' });
+        const toggle = makeButton('', () => { uiSettings[key] = !uiSettings[key]; saveUI(); apply(); });
+        toggle.style.padding = '3px 5px';
+        const label = document.createElement('span'); label.textContent = title;
+        label.style.flex = '1';
+        header.append(toggle, label, ...actions);
+        const body = document.createElement('div');
+        Object.assign(body.style, { display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' });
+        body.append(...nodes);
+        wrap.append(header, body);
+        function apply() { body.style.display = uiSettings[key] ? 'none' : 'flex'; toggle.textContent = uiSettings[key] ? '▸' : '▾'; }
+        apply();
+        return wrap;
+    }
 
     let dragging = false;
     let offsetX = 0;
@@ -272,7 +314,7 @@
     }
 
     for (const command of commands) {
-        toolbar.appendChild(
+        panelContent.appendChild(
             makeButton(
                 command.label,
                 () => insertPrompt(command.prompt)
@@ -337,9 +379,7 @@
         outline: 'none'
     });
 
-    toolbar.appendChild(contextLabel);
-    toolbar.appendChild(captureStatus);
-    toolbar.appendChild(contextBox);
+    // Conversation section is mounted after bridge controls are created.
 
     document.body.appendChild(toolbar);
 
@@ -810,17 +850,23 @@
         connectPerchance
     );
 
-    const connectRow = document.createElement('div');
-    Object.assign(connectRow.style, { width: '100%', display: 'flex', gap: '5px' });
-    connectButton.style.flex = '0 0 auto';
-    connectRow.append(connectButton, characterSelect);
-    toolbar.appendChild(connectRow);
-    toolbar.appendChild(bridgeStatus);
-
-    toolbar.appendChild(resultLabel);
-    toolbar.appendChild(previewStatus);
-    toolbar.appendChild(resultBox);
-    toolbar.appendChild(testRow);
+    const connectionLight = document.createElement('span');
+    connectionLight.title = 'Perchance connection status';
+    connectionLight.textContent = '●';
+    connectionLight.style.color = '#f87171';
+    const connectIcon = makeButton('🔗', connectPerchance);
+    connectIcon.title = 'Connect Perchance';
+    const characterIcon = makeButton('👥', () => { characterMenu.style.display = characterMenu.style.display === 'block' ? 'none' : 'block'; });
+    characterIcon.title = 'Choose character';
+    const characterMenu = document.createElement('div');
+    Object.assign(characterMenu.style, { display: 'none', width: '100%' });
+    characterMenu.appendChild(characterSelect);
+    characterSelect.style.width = '100%';
+    const conversationSection = section('Conversation Input', 'conversationCollapsed', [captureStatus, contextBox, bridgeStatus], [connectionLight, connectIcon, characterIcon]);
+    conversationSection.appendChild(characterMenu);
+    panelContent.appendChild(conversationSection);
+    testButton.textContent = '↻'; testButton.title = 'Refresh Context Information';
+    panelContent.appendChild(section('Context Information', 'basicCollapsed', [previewStatus, resultBox], [testButton]));
 
     // Detailed Context diagnostics: manual, preview-only, never stored.
     const detailedLabel = document.createElement('div');
@@ -851,8 +897,13 @@
     Object.assign(detailedRow.style, {
         width: '100%', display: 'flex', flexWrap: 'wrap', gap: '5px'
     });
-    detailedRow.append(detailedTestButton);
-    toolbar.append(detailedLabel, detailedStatus, detailedBox, detailedRow);
+    detailedTestButton.textContent = '↻'; detailedTestButton.title = 'Refresh Detailed Context';
+    panelContent.appendChild(section('Detailed Context', 'detailedCollapsed', [detailedStatus, detailedBox], [detailedTestButton]));
+    function updateConnectionLight() {
+        connectionLight.style.color = bridgeReady ? '#86efac' : (bridgeWindow && !bridgeWindow.closed && bridgeAttempts < 30 ? '#facc15' : '#f87171');
+    }
+    setInterval(updateConnectionLight, 500);
+    updateConnectionLight();
 
     function setDetailedStatus(message, color = '#aaa') {
         detailedStatus.textContent = '● ' + message;
