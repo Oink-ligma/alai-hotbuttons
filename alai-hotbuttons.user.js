@@ -123,6 +123,7 @@
         panelContent.style.display = uiSettings.panelCollapsed ? 'none' : 'flex';
         panelToggle.textContent = uiSettings.panelCollapsed ? '▸' : '▾';
         toolbar.style.resize = uiSettings.panelCollapsed ? 'none' : 'horizontal';
+        toolbar.style.width = uiSettings.panelCollapsed ? '230px' : (Math.max(230, Math.min(800, Number(uiSettings.width) || 270)) + 'px');
     }
     panelToggle.addEventListener('pointerdown', e => e.stopPropagation());
     panelToggle.addEventListener('click', () => { uiSettings.panelCollapsed = !uiSettings.panelCollapsed; saveUI(); applyPanelCollapse(); });
@@ -866,7 +867,9 @@
     conversationSection.appendChild(characterMenu);
     panelContent.appendChild(conversationSection);
     testButton.textContent = '↻'; testButton.title = 'Refresh Context Information';
-    panelContent.appendChild(section('Context Information', 'basicCollapsed', [previewStatus, resultBox], [testButton]));
+    const basicLight = document.createElement('span');
+    basicLight.textContent = '●'; basicLight.title = 'Context update status';
+    panelContent.appendChild(section('Context Information', 'basicCollapsed', [previewStatus, resultBox], [basicLight, testButton]));
 
     // Detailed Context diagnostics: manual, preview-only, never stored.
     const detailedLabel = document.createElement('div');
@@ -898,7 +901,18 @@
         width: '100%', display: 'flex', flexWrap: 'wrap', gap: '5px'
     });
     detailedTestButton.textContent = '↻'; detailedTestButton.title = 'Refresh Detailed Context';
-    panelContent.appendChild(section('Detailed Context', 'detailedCollapsed', [detailedStatus, detailedBox], [detailedTestButton]));
+    const detailedLight = document.createElement('span');
+    detailedLight.textContent = '●'; detailedLight.title = 'Detailed update status';
+    panelContent.appendChild(section('Detailed Context', 'detailedCollapsed', [detailedStatus, detailedBox], [detailedLight, detailedTestButton]));
+    function syncLight(status, light) {
+        const value = status.textContent || '';
+        light.style.color = /ERROR|TIMEOUT|CONFLICT|failed/i.test(value) ? '#f87171' :
+            /PROCESSING|waiting|queued|connecting/i.test(value) ? '#facc15' :
+            /UPDATED|PREVIEW|READ/i.test(value) ? '#86efac' : '#aaa';
+    }
+    new MutationObserver(() => syncLight(previewStatus, basicLight)).observe(previewStatus, { childList: true, characterData: true, subtree: true });
+    new MutationObserver(() => syncLight(detailedStatus, detailedLight)).observe(detailedStatus, { childList: true, characterData: true, subtree: true });
+    syncLight(previewStatus, basicLight); syncLight(detailedStatus, detailedLight);
     function updateConnectionLight() {
         connectionLight.style.color = bridgeReady ? '#86efac' : (bridgeWindow && !bridgeWindow.closed && bridgeAttempts < 30 ? '#facc15' : '#f87171');
     }
