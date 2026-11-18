@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.9.20
+// @version      1.9.21
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -1022,6 +1022,59 @@
         return originalChatFetch.apply(self, originalArgs);
     };
     console.info('[ALAI] Outgoing Detailed Context hook installed; disabled until enabled in toolbar.');
+
+    // Incoming conversation history: change only the browser-facing JSON copy.
+    // The server's saved messages and outgoing injection remain untouched.
+    function isConversationHistory(input) {
+        try {
+            const url = new URL(typeof input === 'string' ? input : input.url, location.href);
+            const segments = url.pathname.split('/').filter(Boolean);
+            return url.origin === location.origin &&
+                segments[0] === 'backend-api' &&
+                segments[1] === 'conversations' &&
+                (segments.length === 3 ||
+                 (segments.length === 4 && segments[3] === 'messages'));
+        } catch (_) { return false; }
+    }
+    async function cleanIncomingHistory(response) {
+        try {
+            if (!response.ok || !response.headers.get('content-type')?.includes('json')) return response;
+            const data = await response.clone().json();
+            if (!Array.isArray(data?.messages)) return response;
+            let count = 0;
+            for (const message of data.messages) {
+                if (message?.author?.role !== 'user' ||
+                    !Array.isArray(message.content?.parts)) continue;
+                for (let i = 0; i < message.content.parts.length; i++) {
+                    const clean = originalFromInjectedText(message.content.parts[i]);
+                    if (clean === null) continue;
+                    message.content.parts[i] = clean;
+                    count++;
+                }
+            }
+            if (!count) return response;
+            const headers = new Headers(response.headers);
+            headers.delete('content-length');
+            headers.delete('content-encoding');
+            const copy = new Response(JSON.stringify(data), {
+                status: response.status, statusText: response.statusText, headers
+            });
+            Object.defineProperty(copy, 'url', { value: response.url });
+            console.info('[ALAI] Incoming history cleaned:', count, 'wrapped message(s).');
+            return copy;
+        } catch (error) {
+            console.warn('[ALAI] Incoming history cleanup skipped:', error);
+            return response;
+        }
+    }
+    const outgoingAndHistoryFetch = window.fetch;
+    window.fetch = function alaiHistoryFetch(input, init) {
+        if (!isConversationHistory(input)) {
+            return outgoingAndHistoryFetch.apply(this, arguments);
+        }
+        return outgoingAndHistoryFetch.apply(this, arguments).then(cleanIncomingHistory);
+    };
+    console.info('[ALAI] Incoming history hook installed.');
 
     // Display-only cleanup, targeting the actual ChatGPT user Markdown root.
     // This does not alter server-side history or outgoing injection.
