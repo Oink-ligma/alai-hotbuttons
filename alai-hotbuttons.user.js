@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.9.21
+// @version      1.9.22
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.9.17)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.9.22)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -364,7 +364,7 @@
     contextBox.readOnly = false;
 
     contextBox.placeholder =
-        'Up to five completed assistant replies appear here. You can edit them.';
+        'Up to five completed exchanges appear here. You can edit them.';
 
     Object.assign(contextBox.style, {
         display: 'block',
@@ -416,54 +416,140 @@
         ) || null;
     }
 
-    // v1.9.4f:
-    // Keep up to five COMPLETE assistant replies, oldest first.
-    // Perchance limits recentMessagesText to 30,000 characters.
-    // Drop oldest whole replies until the window fits.
-    // Never cut a reply in the middle.
 
+    // v1.9.22 — verified original user messages + completed assistant replies.
     const MAX_CONTEXT_REPLIES = 5;
     const MAX_RECENT_CHARS = 30000;
+    const outgoingTap = [];
+    const verifiedUsers = new Map();
+    const sentReplyIds = new Set();
+    let captureLocation = location.pathname + location.search;
+
+    function normalizeCaptureText(value) {
+        return String(value || '').replace(/\r\n?/g, '\n').replace(/\s+/g, ' ').trim();
+    }
+
+    function reconstructUserMarkdown(root) {
+        function walk(node) {
+            if (node.nodeType === Node.TEXT_NODE) return node.nodeValue || '';
+            if (node.nodeType !== Node.ELEMENT_NODE) return '';
+            const tag = node.tagName.toLowerCase();
+            if (tag === 'br') return '\n';
+            if (tag === 'pre') return '\n' + '```' + '\n' +
+                (node.innerText || node.textContent || '').trim() + '\n' + '```' + '\n';
+            const inner = Array.from(node.childNodes, walk).join('');
+            if (tag === 'strong' || tag === 'b') return '**' + inner + '**';
+            if (tag === 'em' || tag === 'i') return '*' + inner + '*';
+            if (tag === 'code') return '`' + inner + '`';
+            if (tag === 'a') return '[' + inner + '](' + (node.getAttribute('href') || '') + ')';
+            if (['p','div','li','blockquote'].includes(tag) || /^h[1-6]$/.test(tag))
+                return inner + '\n';
+            return inner;
+        }
+        return Array.from(root.childNodes, walk).join('');
+    }
+
+    function getUserBlockForReply(reply) {
+        const assistantBlock = reply?.closest('.block-BQZwFn');
+        if (!assistantBlock?.querySelector('[data-conversation-role="assistant"]')) return null;
+        const userBlock = assistantBlock.previousElementSibling;
+        if (!userBlock?.matches('.block-BQZwFn') ||
+            !userBlock.querySelector('[data-conversation-role="user"]')) return null;
+        const uKey = userBlock.querySelector('[data-chatgpt-search-unit-key]')?.getAttribute('data-chatgpt-search-unit-key');
+        const aKey = assistantBlock.querySelector('[data-chatgpt-search-unit-key]')?.getAttribute('data-chatgpt-search-unit-key');
+        if (uKey && aKey && uKey.split(':')[0] !== aKey.split(':')[0])
+            console.info('[ALAI] Adjacent exchange prefixes differ; checking exact text.');
+        return userBlock;
+    }
+
+    function tapOutgoingUser(body) {
+        try {
+            const payload = JSON.parse(body);
+            const message = payload?.messages?.length === 1 ? payload.messages[0] : null;
+            const parts = message?.content?.parts;
+            if (message?.author?.role !== 'user' ||
+                message?.content?.content_type !== 'text' ||
+                !Array.isArray(parts) || parts.length !== 1 ||
+                typeof parts[0] !== 'string' || !parts[0].trim()) return;
+            const original = originalFromInjectedText(parts[0]) ?? parts[0];
+            outgoingTap.push({
+                text: original, conversationId: payload.conversation_id || null,
+                action: payload.action || null, at: Date.now()
+            });
+            while (outgoingTap.length > 24) outgoingTap.shift();
+        } catch (_) { /* unrecognized payload: fail open */ }
+    }
+
+    function verifyUserForReply(reply) {
+        const id = getReplyId(reply);
+        const bubble = getUserBlockForReply(reply)?.querySelector('[data-markdown-text-tone="user-message"]');
+        if (!id || !bubble) return null;
+        const markdown = normalizeCaptureText(reconstructUserMarkdown(bubble));
+        const plain = normalizeCaptureText(bubble.innerText || bubble.textContent);
+        const conversationId = location.pathname.match(/\/c\/([^/?]+)/)?.[1] || null;
+        for (let i = outgoingTap.length - 1; i >= 0; i--) {
+            const candidate = outgoingTap[i];
+            if (conversationId && candidate.conversationId &&
+                candidate.conversationId !== conversationId) continue;
+            const original = normalizeCaptureText(candidate.text);
+            // Full equality only. Never strip Markdown for verification:
+            // **correction** and correction may mean different things.
+            const tier = original === markdown ? 'markdown' :
+                original === plain ? 'literal' : null;
+            if (!tier) continue;
+            verifiedUsers.set(id, candidate.text);
+            console.info('[ALAI] User verified:', {
+                tier, sourceLength: candidate.text.length, renderedLength: plain.length
+            });
+            return candidate.text;
+        }
+        console.info('[ALAI] User unverified; assistant-only fallback.', {
+            markdownLength: markdown.length, renderedLength: plain.length
+        });
+        return null;
+    }
 
     function buildAssistantReplyWindow(completedId, completedText) {
         const replies = getReplies();
-
-        const endIndex = replies.findIndex(
-            reply => getReplyId(reply) === completedId
-        );
-
+        const endIndex = replies.findIndex(reply => getReplyId(reply) === completedId);
         if (endIndex < 0) return null;
-
-        const entries = replies
-            .slice(0, endIndex + 1)
-            .map(reply => ({
-                id: getReplyId(reply),
-                text: getReplyId(reply) === completedId
-                    ? completedText
-                    : (reply.innerText || '').trim()
-            }))
-            .filter(entry => entry.id && entry.text)
-            .slice(-MAX_CONTEXT_REPLIES)
-            .map(entry => entry.text);
-
+        const entries = replies.slice(0, endIndex + 1).map(reply => {
+            const id = getReplyId(reply);
+            const text = id === completedId ? completedText : (reply.innerText || '').trim();
+            if (!id || !text) return null;
+            const user = verifiedUsers.get(id);
+            return user === undefined ? 'Assistant:\n' + text :
+                'User:\n' + user + '\n\nAssistant:\n' + text;
+        }).filter(Boolean).slice(-MAX_CONTEXT_REPLIES);
         let dropped = 0;
         let combined = entries.join('\n\n');
-
-        while (
-            combined.length > MAX_RECENT_CHARS &&
-            entries.length > 1
-        ) {
+        while (combined.length > MAX_RECENT_CHARS && entries.length > 1) {
             entries.shift();
             dropped++;
             combined = entries.join('\n\n');
         }
-
         return {
-            text: combined,
-            count: entries.length,
-            dropped,
+            text: combined, count: entries.length, dropped,
             oversized: combined.length > MAX_RECENT_CHARS
         };
+    }
+
+    function rememberSentReply(id) {
+        sentReplyIds.add(id);
+        if (sentReplyIds.size > 160)
+            sentReplyIds.delete(sentReplyIds.values().next().value);
+    }
+
+    function checkCaptureNavigation() {
+        const current = location.pathname + location.search;
+        if (current === captureLocation) return;
+        captureLocation = current;
+        outgoingTap.length = 0;
+        verifiedUsers.clear();
+        sentReplyIds.clear();
+        resetPendingReply();
+        baselineId = getReplyId(getLatestReply());
+        setCaptureStatus('Conversation changed; waiting for new reply');
     }
 
     // ============================================================
@@ -529,6 +615,7 @@
     let pendingElement = null;
     let lastChangeAt = 0;
     let sawGenerationActive = false;
+    let pendingPairRetry = false;
 
     const CHECK_INTERVAL_MS = 400;
     const FINISHED_SETTLE_MS = 3000;
@@ -540,9 +627,11 @@
         pendingElement = null;
         lastChangeAt = 0;
         sawGenerationActive = false;
+        pendingPairRetry = false;
     }
 
     function checkForCompletedReply() {
+        checkCaptureNavigation();
         const latest = getLatestReply();
 
         if (!latest) return;
@@ -551,6 +640,8 @@
         const text = latest.innerText.trim();
 
         if (!id || !text) return;
+
+        if (sentReplyIds.has(id)) return;
 
         if (
             id === baselineId &&
@@ -657,7 +748,14 @@
             return;
         }
 
-        // Build the five-reply window only after completion.
+        // Verify the original user text before building the exchange window.
+        if (!verifiedUsers.has(pendingId)) {
+            const matched = verifyUserForReply(pendingElement);
+            if (matched === null && !pendingPairRetry) {
+                pendingPairRetry = true;
+                return; // allow one more 400ms poll for a request/DOM race
+            }
+        }
         const windowResult = buildAssistantReplyWindow(
             pendingId,
             pendingText
@@ -667,6 +765,7 @@
 
         contextBox.value = windowResult.text;
         baselineId = pendingId;
+        rememberSentReply(pendingId);
 
         console.log(
             "Alex's Hotbuttons: completed assistant window:",
@@ -992,12 +1091,14 @@
     // Fail open: any unrecognized request or parse failure uses original fetch.
     // No UI composer mutation, no duplicate fetch, and no Perchance save.
     window.fetch = function alaiContextFetch(input, init) {
-        if (!injectionEnabled || !isChatSubmission(input)) {
+        if (!isChatSubmission(input)) {
             return originalChatFetch.apply(this, arguments);
         }
         const self = this;
         const originalArgs = arguments;
         const handle = (bodyText) => {
+            tapOutgoingUser(bodyText);
+            if (!injectionEnabled) return originalChatFetch.apply(self, originalArgs);
             try {
                 const replacement = rewriteOutgoing(bodyText);
                 if (!replacement) return originalChatFetch.apply(self, originalArgs);
@@ -1121,11 +1222,11 @@
         const assistantChanged = records.some(record => {
             const el = record.target.nodeType === Node.ELEMENT_NODE
                 ? record.target : record.target.parentElement;
-            if (el?.closest?.('[data-message-author-role="assistant"]')) return true;
+            if (el?.closest?.('[data-dil-response]')) return true;
             return [...record.addedNodes].some(node =>
                 node.nodeType === Node.ELEMENT_NODE &&
-                (node.matches?.('[data-message-author-role="assistant"]') ||
-                 node.querySelector?.('[data-message-author-role="assistant"]'))
+                (node.matches?.('[data-dil-response]') ||
+                 node.querySelector?.('[data-dil-response]'))
             );
         });
         if (assistantChanged) {
