@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.9.12
+// @version      1.9.13
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.9.12)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.9.13)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -1023,40 +1023,56 @@
     };
     console.info('[ALAI] Outgoing Detailed Context hook installed; disabled until enabled in toolbar.');
 
-    // Display-only cleanup. Server-side messages remain unchanged.
+    // Display-only cleanup: never changes the stored conversation or outgoing request.
     const userStartMarker = '[USER MESSAGE]';
     const userEndMarker = '[END USER MESSAGE]';
     function originalFromInjectedText(value) {
-        if (typeof value !== 'string' || !value.trimStart().startsWith(contextStart)) return null;
-        const outerEnd = value.indexOf('[END EXTERNAL CONTEXT]');
-        const start = value.indexOf(userStartMarker, outerEnd);
-        const end = value.lastIndexOf(userEndMarker);
-        if (outerEnd < 0 || start < 0 || end < start ||
-            value.slice(end + userEndMarker.length).trim()) return null;
-        let original = value.slice(start + userStartMarker.length, end);
-        if (original.startsWith('\n')) original = original.slice(1);
-        if (original.endsWith('\n')) original = original.slice(0, -1);
-        return original;
+        if (typeof value !== 'string') return null;
+        const text = value.replace(/\r\n?/g, '\n').trim();
+        if (!text.startsWith(contextStart)) return null;
+        const outerEnd = text.indexOf('[END EXTERNAL CONTEXT]');
+        const start = text.indexOf(userStartMarker, outerEnd);
+        const end = text.lastIndexOf(userEndMarker);
+        if (outerEnd < 0 || start < 0 || end <= start) return null;
+        // Allow trailing UI labels such as "Copy" from ChatGPT's message controls,
+        // but only after the exact end marker.
+        let original = text.slice(start + userStartMarker.length, end);
+        return original.replace(/^\n/, '').replace(/\n$/, '');
     }
     let cleanupScheduled = false;
     function cleanInjectedUserBubbles() {
         cleanupScheduled = false;
         let cleaned = 0;
         document.querySelectorAll('[data-message-author-role="user"]').forEach(bubble => {
+            if (bubble.dataset.alaiDisplayCleaned === 'true') return;
+            // Rendered Markdown may distribute the wrapper among multiple elements.
+            // innerText preserves visual line breaks that textContent discards.
             const candidates = [bubble, ...bubble.querySelectorAll('*')];
-            const matches = candidates.filter(el =>
-                !el.closest('#alex-hotbuttons') &&
-                originalFromInjectedText(el.textContent) !== null
-            );
-            const target = matches[matches.length - 1];
+            let target = null, original = null;
+            for (let i = candidates.length - 1; i >= 0; i--) {
+                const el = candidates[i];
+                if (el.dataset.alaiDisplayCleaned === 'true') continue;
+                const text = el.innerText || el.textContent || '';
+                const extracted = originalFromInjectedText(text);
+                if (extracted !== null) {
+                    target = el;
+                    original = extracted;
+                    break;
+                }
+            }
             if (!target) return;
-            const original = originalFromInjectedText(target.textContent);
-            if (original === null) return;
+            // Only replace the message content; avoid deleting ChatGPT's toolbar
+            // if the match was found on the entire user-message container.
+            if (target === bubble) {
+                console.warn('[ALAI] Wrapper found only at bubble root; skipping unsafe replacement.');
+                return;
+            }
             target.textContent = original;
+            target.style.whiteSpace = 'pre-wrap';
             target.dataset.alaiDisplayCleaned = 'true';
             cleaned++;
         });
-        if (cleaned) console.info('[ALAI] Cleaned', cleaned, 'injected user message bubble(s).');
+        if (cleaned) console.info('[ALAI] Display-cleaned', cleaned, 'injected user bubble(s).');
     }
     function scheduleBubbleCleanup() {
         if (cleanupScheduled) return;
@@ -1066,7 +1082,6 @@
     const bubbleObserver = new MutationObserver(scheduleBubbleCleanup);
     bubbleObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
     scheduleBubbleCleanup();
-
 
     function syncLight(status, light) {
         const value = status.textContent || '';
