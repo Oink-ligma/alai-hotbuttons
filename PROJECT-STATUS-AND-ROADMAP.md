@@ -17,7 +17,8 @@ ALAI Hotbuttons (ChatGPT userscript)
     ↓ cross-origin bridge
 Perchance relay + generator
     ↓ Basic / Detailed Context AI processing
-Context preview / eventually usable current context
+Shared Basic / Detailed Context previews
+    + [next] separate Alex and Aiko Personal / Detailed Personal Memory
     ↓ [future: verify, select, and retrieve for outgoing use]
 ALAI Hotbuttons outgoing-message assembler
     + Bill's exact original text
@@ -105,9 +106,9 @@ Important limitations: this is not system-level injection, does not grant contro
 
 ## 5. WHERE WE ARE NOW
 
-**Project stage: Context gathering / bridge and preview infrastructure.**
+**Project stage: Shared-context bridge operational; NEXT is independent character-specific memory infrastructure (Alex and Aiko).**
 
-The concept has been investigated; the structured wrapper has been manually demonstrated; the userscripts now gather recent completed ChatGPT replies and send them to Perchance for Basic/Detailed Context AI **previews**. We are preparing the means to obtain trustworthy context for later use.
+The concept has been investigated; the structured wrapper has been manually demonstrated; the userscripts now gather recent completed ChatGPT replies and send them to Perchance for Basic/Detailed Context AI **previews**. We are preparing the means to obtain trustworthy context for later use. **Correction from Bill:** shared Basic and Detailed Context alone are insufficient. Before outgoing injection, implement Personal Memory and Detailed Personal Memory separately for Alex and for Aiko, with independently updated thoughts, memories, priorities, and personal continuity.
 
 **Not yet implemented:** automatic retrieval of the right current Perchance state immediately before a user send, merging it with Bill's typed message, or submitting that assembled message through the ordinary ChatGPT flow.
 
@@ -121,22 +122,34 @@ Do not describe the system as already injecting context. Do not assume AI previe
 | 2. Manual feasibility | Test context wrapper and newer-state supersession | **Done (limited)** |
 | 3. ChatGPT → Perchance bridge | Capture completed replies; transport and preview context updates | **Implemented; previously confirmed functional** |
 | 4. Toolbar hardening | Collapse/resize/status/selector; robust reconnection | **Mostly implemented; later UI changes need confirmation; reconnection deferred** |
-| 5. Context source for injection | Identify whether to read saved Basic/Detailed Context or a deliberate subset; verify freshness and read semantics | **Next design/engineering milestone** |
-| 6. Outgoing message assembly | Preserve Bill's original text; insert selected context using exact tested wrapper | **Not implemented** |
-| 7. Safe send integration | Hook into a reliable composer/send flow without duplicate sends, lost text, or broken normal behavior | **Not implemented** |
-| 8. UI/history validation | Determine visible message effects, retry behavior, stale snapshots, long-play token/history costs | **Not tested** |
-| 9. Sustained-use validation | Repeated sends, state changes, disconnected bridge, long conversations | **Not tested** |
+| 5. Character-specific memory architecture | Establish separate Personal Memory and Detailed Personal Memory for Alex and Aiko, including update/read behavior and character isolation | **NEXT — not implemented** |
+| 6. Character memory validation | Confirm independent thoughts, experiences, reactions, goals, and long-term continuity; avoid copying shared summaries into both characters | **Not tested** |
+| 7. Context source for injection | Determine shared and per-character memory sources, retrieval, freshness, selection, and privacy boundaries | **Later** |
+| 8. Outgoing message assembly | Preserve Bill's original text; insert selected context using exact tested wrapper, extended as needed for character-specific data | **Not implemented** |
+| 9. Safe send integration | Hook into a reliable composer/send flow without duplicate sends, lost text, or broken normal behavior | **Not implemented** |
+| 10. UI/history validation | Determine visible message effects, retries, stale snapshots, long-play token/history costs | **Not tested** |
+| 11. Sustained-use validation | Repeated sends, state changes, disconnected bridge, long conversations and independent character continuity | **Not tested** |
 
-## 7. Next-session procedure (actionable)
+## 7. Next-session procedure (corrected order)
 
-1. **Read this project file and the linked message-template journal.** The journal contains the exact tested wrapper and earlier reasoning; this file tracks implementation.
-2. **Fetch the current repository scripts before editing.** Verify their versions and actual message handlers; the version numbers above are a recorded snapshot, not a promise of current code.
-3. **Inspect how Perchance context can be read without saving or mutating it.** Decide whether the outbound context should come from persisted Basic Context, Detailed Context, both, or an explicitly selected subset. Confirm how current/stale state is identified.
-4. **Confirm UI status and bridge lifecycle in Bill's browser.** In particular, verify v1.9.8/1.9.9 UI changes and whether manual reconnect after refresh remains necessary.
-5. **Prototype context retrieval and assembly independently of sending.** Display/inspect the assembled message first. Ensure the original message survives unchanged and the exact tested delimiters are used.
-6. **Only then select and test a send-integration approach.** Prefer an observable, reversible path; do not assume historical DevTools payload shapes are stable. Handle Enter/button sends, retries, disabled/disconnected states, and duplication.
-7. **Run short controlled tests, then longer continuity tests.** Verify that new context supersedes old context and that the same ChatGPT conversation remains intact. Record results in this file, with versions and explicit observed outcomes.
-8. **Protect existing behavior.** Do not make Basic/Detailed AI previews silently write to Perchance. Preserve shared busy coordination, message origin checks, and the existing working toolbar.
+1. Read this master file, the tested wrapper journal, and the current ChatGPT-side and Perchance relay code.
+2. **Next major engineering phase: implement character-specific memories, not injection.** Inspect Perchance's actual Personal Memory and Detailed Personal Memory field semantics, update mechanisms, character identifiers, and available read/write hooks. Do not infer capability from relay message-type names.
+3. Design **four separate stores/streams**: Alex Personal Memory, Alex Detailed Personal Memory, Aiko Personal Memory, Aiko Detailed Personal Memory. Shared Basic/Detailed Context remain distinct and do not substitute for these.
+4. Preserve character-specific provenance: what each character witnessed, was told, felt, inferred, intends, or still needs to resolve. Never assume Alex automatically knows Aiko's private thoughts or vice versa. Their memories may overlap on shared facts but must not become mirrored thought/reaction/task lists.
+5. Prototype updates and previews for each character independently. Keep existing shared-context previews non-saving; establish and explicitly test any new personal-memory persistence behavior before enabling it.
+6. Test character selection, isolation, independent evolution over many turns, and absence of cross-character leakage. Confirm behavior in Bill's actual browser.
+7. **Only after personal-memory infrastructure is reliable**, revisit retrieving selected shared and character-specific context for outgoing injection. Use the linked tested wrapper as the starting point, but decide how to represent individual memory without falsely presenting private thoughts as shared facts.
+8. Implement safe message assembly and send integration, then evaluate UI/history effects and long-term continuity. Keep a known-working baseline and document each verified milestone.
+
+## Character-specific memory design requirements (new priority)
+
+Perchance's established memory model distinguishes:
+- **Personal Memory:** short, specific, private character points, including THOUGHTS and MEMORIES; inserted when that character generates a reply.
+- **Extended / Detailed Personal Memory:** richer private experiences, emotional state, relationships, and open threads; complements Personal Memory rather than replacing it. The user refers to this as **Detailed Personal Memory** for the bridge project.
+
+These are **character-specific**, unlike shared Basic and Detailed Context. For two characters the planned memory inventory is six distinct records: two shared and four character-specific. **This is an architectural target, not an implemented claim.**
+
+Before coding, verify the actual Perchance UI names, storage/update semantics, and how its memory updater distinguishes characters. Decide whether each character needs its own update request, selection control, preview, and persistence mechanism. No generic global 'thoughts' summary should be copied into both characters.
 
 ## 8. Implementation requirements / guardrails
 
@@ -153,13 +166,15 @@ Do not describe the system as already injecting context. Do not assume AI previe
 
 These are intentionally **not** guessed:
 
-1. Which Perchance source is authoritative for outgoing injection: saved Basic Context, saved Detailed Context, both, or a selected current-state excerpt?
-2. Should injection be opt-in per message, toggle-enabled automatically, or always on once validated?
-3. If the bridge is disconnected or the context is stale, should sending proceed with no context, pause for reconnection, or ask Bill?
-4. Is visible context text in ChatGPT's user-message bubble acceptable, or is hiding it a requirement that must be solved before rollout?
-5. What is the preferred maximum injected context size, if any?
+1. How do Perchance's Personal Memory and Detailed/Extended Personal Memory mechanisms actually identify, update, store, and retrieve memories for Alex and Aiko independently? (Immediate next research question.)
+2. Which character-memory operations should be preview-only versus explicitly persisted, and how should their UI/status controls work?
+3. Which Perchance shared and character-specific sources will eventually be selected for outgoing injection?
+4. Should injection be opt-in per message, toggle-enabled automatically, or always on once validated?
+5. If the bridge is disconnected or the context is stale, should sending proceed with no context, pause for reconnection, or ask Bill?
+6. Is visible context text in ChatGPT's user-message bubble acceptable, or is hiding it a requirement that must be solved before rollout?
+7. What is the preferred maximum injected context size, if any?
 
-Resolve these before declaring a production-ready outgoing feature. They need not block documenting or testing context retrieval.
+Resolve these before declaring a production-ready outgoing feature. They need not block investigation of character-specific memory mechanisms. **Do not jump straight to outgoing injection.**
 
 ## 10. How to maintain this project file
 
