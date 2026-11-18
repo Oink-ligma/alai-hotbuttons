@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.9.17
+// @version      1.9.18
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -991,7 +991,54 @@
     }
     // Fail open: any unrecognized request or parse failure uses original fetch.
     // No UI composer mutation, no duplicate fetch, and no Perchance save.
+    // Clean only browser-facing conversation history JSON. The server retains
+    // the complete injected message, and outgoing submission is unchanged.
+    function isConversationHistory(input) {
+        try {
+            const url = new URL(typeof input === 'string' ? input : input.url, location.href);
+            return url.origin === location.origin &&
+                /^\\/backend-api\\/conversations\\/[^/]+(?:\\/messages)?\\/?$/.test(url.pathname);
+        } catch (_) { return false; }
+    }
+    async function cleanIncomingHistory(response) {
+        try {
+            if (!response.ok || !response.headers.get('content-type')?.includes('json')) return response;
+            const data = await response.clone().json();
+            if (!Array.isArray(data?.messages)) return response;
+            let cleaned = 0;
+            for (const message of data.messages) {
+                if (message?.author?.role !== 'user' ||
+                    !Array.isArray(message.content?.parts)) continue;
+                for (let i = 0; i < message.content.parts.length; i++) {
+                    const original = originalFromInjectedText(message.content.parts[i]);
+                    if (original === null) continue;
+                    message.content.parts[i] = original;
+                    cleaned++;
+                }
+            }
+            if (!cleaned) return response;
+            const headers = new Headers(response.headers);
+            headers.delete('content-length');
+            headers.delete('content-encoding');
+            const displayResponse = new Response(JSON.stringify(data), {
+                status: response.status,
+                statusText: response.statusText,
+                headers
+            });
+            // A constructed Response has no request URL. Preserve it for consumers
+            // that inspect response.url after fetching conversation history.
+            Object.defineProperty(displayResponse, 'url', { value: response.url });
+            console.info('[ALAI] Incoming history display cleanup:', cleaned, 'wrapped user message(s).');
+            return displayResponse;
+        } catch (error) {
+            console.warn('[ALAI] Incoming history cleanup skipped:', error);
+            return response;
+        }
+    }
     window.fetch = function alaiContextFetch(input, init) {
+        if (isConversationHistory(input)) {
+            return originalChatFetch.apply(this, arguments).then(cleanIncomingHistory);
+        }
         if (!injectionEnabled || !isChatSubmission(input)) {
             return originalChatFetch.apply(this, arguments);
         }
