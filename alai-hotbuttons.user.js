@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.10.0
+// @version      1.10.1
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -424,6 +424,7 @@
 
     const MAX_CONTEXT_REPLIES = 5;
     const MAX_RECENT_CHARS = 30000;
+    let stagedUserText = null;
 
     function buildAssistantReplyWindow(completedId, completedText) {
         const replies = getReplies();
@@ -444,7 +445,9 @@
             }))
             .filter(entry => entry.id && entry.text)
             .slice(-MAX_CONTEXT_REPLIES)
-            .map(entry => entry.text);
+            .map((entry, index, selected) => index === selected.length - 1 && stagedUserText !== null
+                ? stagedUserText + '\n\n' + entry.text
+                : entry.text);
 
         let dropped = 0;
         let combined = entries.join('\n\n');
@@ -666,6 +669,7 @@
         if (!windowResult) return;
 
         contextBox.value = windowResult.text;
+        stagedUserText = null;
         baselineId = pendingId;
 
         console.log(
@@ -991,13 +995,36 @@
     }
     // Fail open: any unrecognized request or parse failure uses original fetch.
     // No UI composer mutation, no duplicate fetch, and no Perchance save.
+    // Stage the original message before the existing injection hook runs.
+    function captureOutgoingUser(bodyText) {
+        try {
+            const payload = JSON.parse(bodyText);
+            if (payload?.action !== 'next' || !Array.isArray(payload.messages) ||
+                payload.messages.length !== 1) return;
+            const message = payload.messages[0];
+            if (message?.author?.role !== 'user' ||
+                message?.content?.content_type !== 'text' ||
+                !Array.isArray(message.content.parts) ||
+                message.content.parts.length !== 1 ||
+                typeof message.content.parts[0] !== 'string') return;
+            const original = message.content.parts[0];
+            if (!original.trim() || original.includes(contextStart)) return;
+            stagedUserText = original;
+            contextBox.value = original;
+            setCaptureStatus('Original message captured; awaiting reply...', '#86efac');
+        } catch (error) {
+            console.warn('[ALAI] Original message capture skipped:', error);
+        }
+    }
     window.fetch = function alaiContextFetch(input, init) {
-        if (!injectionEnabled || !isChatSubmission(input)) {
+        if (!isChatSubmission(input)) {
             return originalChatFetch.apply(this, arguments);
         }
         const self = this;
         const originalArgs = arguments;
         const handle = (bodyText) => {
+            captureOutgoingUser(bodyText);
+            if (!injectionEnabled) return originalChatFetch.apply(self, originalArgs);
             try {
                 const replacement = rewriteOutgoing(bodyText);
                 if (!replacement) return originalChatFetch.apply(self, originalArgs);
