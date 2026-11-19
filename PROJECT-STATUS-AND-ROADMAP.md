@@ -106,13 +106,13 @@ Important limitations: this is not system-level injection, does not grant contro
 
 ## 5. WHERE WE ARE NOW
 
-**Project stage: Shared-context bridge operational; NEXT is independent character-specific memory infrastructure (Alex and Aiko).**
+**Project stage (2026-11-19): Shared-context preview bridge and opt-in outgoing injection prototype operational; v1.9.25 adds client-side history/display cleaning, user-confirmed on desktop. Server-stored history cleanliness, cross-device behavior, and long-run robustness remain unresolved. Character-specific memory infrastructure is still a planned next major phase.**
 
 The concept has been investigated; the structured wrapper has been manually demonstrated; the userscripts now gather recent completed ChatGPT replies and send them to Perchance for Basic/Detailed Context AI **previews**. We are preparing the means to obtain trustworthy context for later use. **Correction from Bill:** shared Basic and Detailed Context alone are insufficient. Before outgoing injection, implement Personal Memory and Detailed Personal Memory separately for Alex and for Aiko, with independently updated thoughts, memories, priorities, and personal continuity.
 
-**Not yet implemented:** automatic retrieval of the right current Perchance state immediately before a user send, merging it with Bill's typed message, or submitting that assembled message through the ordinary ChatGPT flow.
+**Still not implemented:** verified fresh retrieval of Perchance's saved shared and per-character memories immediately before send. The opt-in v1.9.25 interceptor can assemble and submit an outgoing wrapper using the **editable Detailed Context textbox**, but that does not establish freshness, persistence, or an invisible server-side channel.
 
-Do not describe the system as already injecting context. Do not assume AI previews are saved Perchance context.
+**Current qualification:** Outgoing context injection is browser-tested and working in opt-in prototype mode; do not describe it as clean, invisible, production-ready, or sourced from verified saved Perchance memory. Do not assume AI previews are saved Perchance context.
 
 ## 6. Roadmap and milestone gates
 
@@ -125,9 +125,9 @@ Do not describe the system as already injecting context. Do not assume AI previe
 | 5. Character-specific memory architecture | Establish separate Personal Memory and Detailed Personal Memory for Alex and Aiko, including update/read behavior and character isolation | **NEXT — not implemented** |
 | 6. Character memory validation | Confirm independent thoughts, experiences, reactions, goals, and long-term continuity; avoid copying shared summaries into both characters | **Not tested** |
 | 7. Context source for injection | Determine shared and per-character memory sources, retrieval, freshness, selection, and privacy boundaries | **Later** |
-| 8. Outgoing message assembly | Preserve Bill's original text; insert selected context using exact tested wrapper, extended as needed for character-specific data | **Not implemented** |
-| 9. Safe send integration | Hook into a reliable composer/send flow without duplicate sends, lost text, or broken normal behavior | **Not implemented** |
-| 10. UI/history validation | Determine visible message effects, retries, stale snapshots, long-play token/history costs | **Not tested** |
+| 8. Outgoing message assembly | Preserve Bill's original text; insert selected context using exact tested wrapper, extended as needed for character-specific data | **Prototype implemented and browser-tested with editable Detailed Context; fresh saved-memory retrieval and character-specific composition remain open** |
+| 9. Safe send integration | Hook into a reliable composer/send flow without duplicate sends, lost text, or broken normal behavior | **Opt-in fetch interception works in desktop tests; failure/retry/send-path coverage not complete** |
+| 10. UI/history validation | Determine visible message effects, retries, stale snapshots, long-play token/history costs | **Partial: desktop client-side cleanup observed; phone displays uncleaned history; server-side removal not demonstrated** |
 | 11. Sustained-use validation | Repeated sends, state changes, disconnected bridge, long conversations and independent character continuity | **Not tested** |
 
 ## 7. Next-session procedure (corrected order)
@@ -185,6 +185,29 @@ Resolve these before declaring a production-ready outgoing feature. They need no
 - **External research:** A June 2026 OpenAI developer-community report describes analogous visibility problems for ChatGPT app widget-originated messages and unreliable app-specific model-context updates. This is *not* proof that a userscript has access to those app interfaces or to a hidden supported context channel: https://community.openai.com/t/widget-originated-ui-message-now-renders-full-message-text-in-transcript-previously-hidden/1383520
 - **Next decision gate:** Determine whether an actual separate context channel is accessible from the existing ChatGPT web client, without inventing undocumented request fields or claiming that an Apps SDK mechanism works in Tampermonkey. If none is demonstrated, present the honest tradeoff: visible persisted context with optional UI cosmetics, or a different integration architecture. Preserve v1.9.11 and keep injection OFF during investigation.
 - **Priority correction:** This browser-verified injection milestone supersedes the older roadmap's 'no outgoing injection implemented' wording. Character-specific memory work remains planned, but clean delivery is the immediate blocker.
+
+## 9B. v1.9.25 injection and history-cleaning follow-up (2026-11-19)
+
+**Code checked:** `alai-hotbuttons.user.js` on the default branch identifies itself as **v1.9.25**. It retains the outgoing injection checkbox (initially OFF per tab), assembles the established external-memory wrapper from the editable Detailed Context and original outgoing text, and intercepts eligible `fetch` submissions. The script also contains an incoming-history response-cleaning layer and a display-only user-bubble cleanup layer. These are different operations; neither demonstrates deletion or rewriting of server-stored conversation messages.
+
+**User-reported desktop verification:** Bill reported approximately **30 tests** of the v1.9.25 injection/cleaning combination, with injection ON and the cleaning working. He reconfirmed on November 19 that **“injection cleaning is still working.”** This supports repeated successful behavior in his tested desktop configuration, not exhaustive validation of all ChatGPT send/history paths.
+
+**Cross-device observation:** On his phone, where the desktop Tampermonkey Hotbuttons cleanup was not running, Bill saw the original uncleaned injected messages. This is evidence that the cleaner's presentation is local to the instrumented client, **not** evidence of a server-side cleanup. The exact behavior of every history API response, reload/edit/export path, or other device remains to be tested. Do not conflate the code's incoming-response transformation with server-side message mutation.
+
+**Historical milestone retained:** The v1.9.11 test initially proved outgoing request injection but also exposed the full wrapper in ChatGPT user bubbles. v1.9.25 mitigates the visible clutter **on the tested desktop client**; it does not resolve persisted-history clutter or prove a supported hidden context channel.
+
+**Verified vs proposed:** Working outgoing injection and desktop cleanup are user-observed; a truly invisible/persistent-history-clean integration, automatic fresh Perchance saved-memory reads, separate Alex/Aiko Personal and Detailed Personal Memory, robust reconnection, long-play reliability, and all send/retry/export/mobile cases remain **open**. The conversation included discussion of comparing desktop with Hotbuttons disabled to inspect raw history; do not record that comparison as completed. No new character-memory implementation or save behavior was demonstrated.
+
+**Next engineering/test sequence:**
+
+1. Preserve the current v1.9.25 known-working baseline; avoid rewriting the injector and cleaner together.
+2. Explicitly test refresh/reload, desktop with script disabled, phone, edit/regenerate, exports/history, and React re-rendering. Record what is cleaned only in the UI, what is rewritten in incoming responses, and what remains stored on the server.
+3. Test injection OFF, missing/empty/stale Detailed Context, multiline messages, retries, send failures, duplicate prevention, and alternate submission paths. Do not infer reliability from the ~30 successful tests alone.
+4. Decide with Bill whether local visual cleaning is acceptable given server-side persistence, or whether a different supported delivery architecture is required. Do not invent an invisible injection channel.
+5. Continue the separately planned Alex/Aiko personal-memory architecture (four private streams plus two shared streams), with actual Perchance semantics, isolation, and persistence tests **before** relying on it for outgoing context.
+6. Only after source freshness, failure policy, and history tradeoffs are resolved should injection be treated as production-ready.
+
+**Blockers:** No demonstrated server-side-invisible context path; no validated current saved-memory retrieval/persistence for injection; incomplete cross-device/history/retry and long-run testing. These do not negate the desktop prototype milestone.
 
 ## 10. How to maintain this project file
 
