@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.10.1
+// @version      1.10.2
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.10.0)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.10.2)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -1009,8 +1009,8 @@
                 typeof message.content.parts[0] !== 'string') return;
             const original = message.content.parts[0];
             if (!original.trim() || original.includes(contextStart)) return;
-            stagedUserText = original;
-            contextBox.value = original;
+            stagedUserText = 'Bill: ' + original;
+            contextBox.value = stagedUserText;
             setCaptureStatus('Original message captured; awaiting reply...', '#86efac');
         } catch (error) {
             console.warn('[ALAI] Original message capture skipped:', error);
