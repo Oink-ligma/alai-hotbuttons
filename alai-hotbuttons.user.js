@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.10.3
+// @version      1.10.4
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.10.3)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.10.4)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -1236,7 +1236,7 @@
             }
             data.type = 'nap-detailed-update';
             data.recentMessagesText = recentMessagesText;
-            data.previousDetailed = detailedBaseline.previousDetailed;
+            data.previousDetailed = detailedBox.value;
         } else if (action === 'save') {
             if (!detailedBaseline || detailedBaseline.characterId !== characterId) return;
             data.type = 'nap-detailed-save';
