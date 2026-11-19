@@ -920,16 +920,18 @@
         fontSize: '11px', lineHeight: '1.4'
     });
     const detailedReadButton = makeButton('📖 Read Detailed', () => detailedRequest('read'));
-    const detailedTestButton = makeButton('🔄 Refresh Detailed', () => detailedRequest('update'));
+    const detailedTestButton = makeButton('✓ Adopt as Baseline', () => adoptDetailedBaseline());
+    const detailedGenerateButton = makeButton('🔄 Generate Detailed', () => detailedRequest('update'));
     const detailedDryButton = makeButton('🔒 Dry-run Save', () => detailedRequest('save'));
     const detailedRow = document.createElement('div');
     Object.assign(detailedRow.style, {
         width: '100%', display: 'flex', flexWrap: 'wrap', gap: '5px'
     });
-    detailedTestButton.textContent = '↻'; detailedTestButton.title = 'Refresh Detailed Context';
+    detailedTestButton.textContent = '✓'; detailedTestButton.title = 'Adopt edited Detailed Context as local baseline (no Perchance call)';
+    detailedGenerateButton.textContent = '↻'; detailedGenerateButton.title = 'Generate Detailed Context from conversation and baseline';
     const detailedLight = document.createElement('span');
     detailedLight.textContent = '●'; detailedLight.title = 'Detailed update status';
-    panelContent.appendChild(section('Detailed Context', 'detailedCollapsed', [detailedStatus, detailedBox], [detailedTestButton], detailedLight));
+    panelContent.appendChild(section('Detailed Context', 'detailedCollapsed', [detailedStatus, detailedBox], [detailedTestButton, detailedGenerateButton], detailedLight));
 
     // Outgoing injection: off by default. The current editable Detailed Context
     // textbox is the only context source; Perchance is not contacted on send.
@@ -1196,13 +1198,25 @@
         setDetailedStatus('IDLE — read stored context first');
         updateDetailedButtons();
     }
+    function adoptDetailedBaseline() {
+        if (!detailedBaseline || !characterSelect.value ||
+            detailedBaseline.characterId !== characterSelect.value ||
+            detailedPending || pendingRequestId) return;
+        detailedBaseline.previousDetailed = detailedBox.value;
+        setDetailedStatus('ADOPTED — ' + detailedBox.value.length +
+            ' chars; local baseline (NOT SAVED)', '#86efac');
+        updateDetailedButtons();
+    }
     function updateDetailedButtons() {
         const ready = bridgeReady && !!characterSelect.value &&
             !pendingRequestId && !detailedPending;
         detailedReadButton.disabled = !ready;
-        detailedTestButton.disabled = !ready;
+        detailedTestButton.disabled = !detailedBaseline ||
+            detailedBaseline.characterId !== characterSelect.value ||
+            !!detailedPending || !!pendingRequestId;
+        detailedGenerateButton.disabled = !ready;
         detailedDryButton.disabled = !ready || !detailedBaseline || !detailedRuns;
-        for (const button of [detailedReadButton, detailedTestButton, detailedDryButton]) {
+        for (const button of [detailedReadButton, detailedTestButton, detailedGenerateButton, detailedDryButton]) {
             button.style.opacity = button.disabled ? '0.5' : '1';
         }
     }
