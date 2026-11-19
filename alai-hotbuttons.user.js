@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.10.2
+// @version      1.10.3
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -1623,7 +1623,7 @@
                 // Preserve the baseline returned by the generator for a later dry-run CAS.
                 detailedBaseline = {
                     characterId: characterSelect.value,
-                    previousDetailed: String(data.previousDetailed || ''),
+                    previousDetailed: String(data.detailed),
                     memVersionDetailed: Number(data.memVersionDetailed) || 0
                 };
                 detailedBox.value = data.detailed;
