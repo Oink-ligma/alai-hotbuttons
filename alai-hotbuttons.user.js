@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.11.0
+// @version      1.11.1
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -1846,6 +1846,7 @@
                 }
             }
 
+            window.dispatchEvent(new Event('alai-memory-character-roster-ready'));
             const savedCharacter = recovery.selectedCharacter;
             characterSelect.value = [...characterSelect.options].some(option => option.value === savedCharacter)
                 ? savedCharacter : '';
@@ -1956,7 +1957,7 @@
 
 
     // ============================================================
-    // PERSONAL MEMORY PANEL — v1.11.0 BASE UI ONLY
+    // PERSONAL MEMORY PANEL — v1.11.1 CHARACTER SELECTORS
     // Separate from the existing Hotbuttons panel. The four text
     // areas are local drafts; NO Perchance read/write occurs here.
     // ============================================================
@@ -1992,7 +1993,7 @@
             fontWeight: 'bold'
         });
         const title = document.createElement('span');
-        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.11.0)';
+        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.11.1)';
         const toggle = document.createElement('button');
         toggle.type = 'button';
         toggle.title = 'Collapse or expand memory panel';
@@ -2006,7 +2007,7 @@
         Object.assign(content.style, { paddingTop: '7px', display: 'grid', gap: '7px' });
         panel.appendChild(content);
         const notice = document.createElement('div');
-        notice.textContent = 'UI preview only — not connected to Perchance; text is not saved.';
+        notice.textContent = 'Character list uses the existing Perchance connection. Memory read/write is not connected; text is not saved.';
         Object.assign(notice.style, { color: '#bbb', fontSize: '10px' });
         content.appendChild(notice);
         function applyCollapsed() {
@@ -2022,19 +2023,60 @@
             persist();
             applyCollapsed();
         });
+        // Mirror the main Conversation Input character roster without changing its selection.
+        const memorySelectors = [];
+        function refreshMemoryCharacters() {
+            const available = [...characterSelect.options].filter(option => option.value);
+            for (const { name, select } of memorySelectors) {
+                const previous = select.value || String(state['character' + name] || '');
+                select.replaceChildren(new Option(
+                    available.length ? 'Choose character...' : 'Connect Perchance...', ''
+                ));
+                for (const option of available) select.appendChild(new Option(option.textContent, option.value));
+                select.disabled = !available.length;
+                select.value = available.some(option => option.value === previous) ? previous : '';
+                if (!select.value && previous) {
+                    state['character' + name] = '';
+                    persist();
+                }
+            }
+        }
         for (const name of ['Alex', 'Aiko']) {
             const frame = document.createElement('section');
             Object.assign(frame.style, {
                 border: '1px solid #555', borderRadius: '7px',
                 overflow: 'hidden', minWidth: '0'
             });
-            const frameHeader = document.createElement('button');
-            frameHeader.type = 'button';
+            const frameHeader = document.createElement('div');
             Object.assign(frameHeader.style, {
-                width: '100%', textAlign: 'left', padding: '7px',
-                background: '#383838', color: '#eee', border: 0,
-                cursor: 'pointer', fontWeight: 'bold'
+                display: 'flex', alignItems: 'center', gap: '6px',
+                width: '100%', boxSizing: 'border-box', padding: '5px 7px',
+                background: '#383838', color: '#eee', fontWeight: 'bold'
             });
+            const collapseButton = document.createElement('button');
+            collapseButton.type = 'button';
+            collapseButton.title = 'Collapse or expand ' + name;
+            Object.assign(collapseButton.style, {
+                background: 'transparent', color: '#eee', border: 0,
+                padding: '2px', cursor: 'pointer', fontWeight: 'bold'
+            });
+            const nameLabel = document.createElement('span');
+            nameLabel.textContent = name;
+            const memoryCharacterSelect = document.createElement('select');
+            memoryCharacterSelect.title = 'Perchance character for ' + name + ' memories';
+            memoryCharacterSelect.setAttribute('aria-label', name + ' Perchance character');
+            Object.assign(memoryCharacterSelect.style, {
+                marginLeft: 'auto', minWidth: '0', width: '55%',
+                maxWidth: '220px', background: '#424242', color: '#fff',
+                border: '1px solid #777', borderRadius: '5px',
+                fontSize: '10px', padding: '4px'
+            });
+            memoryCharacterSelect.addEventListener('change', () => {
+                state['character' + name] = memoryCharacterSelect.value;
+                persist();
+            });
+            frameHeader.append(collapseButton, nameLabel, memoryCharacterSelect);
+            memorySelectors.push({ name, select: memoryCharacterSelect });
             const body = document.createElement('div');
             Object.assign(body.style, { padding: '7px', display: 'grid', gap: '7px' });
             for (const field of ['Personal Memory', 'Extended Personal Memory']) {
@@ -2061,16 +2103,18 @@
             const key = 'collapsed' + name;
             function applyFrame() {
                 body.style.display = state[key] ? 'none' : 'grid';
-                frameHeader.textContent = (state[key] ? '▸  ' : '▾  ') + name;
-                frameHeader.setAttribute('aria-expanded', String(!state[key]));
+                collapseButton.textContent = state[key] ? '▸' : '▾';
+                collapseButton.setAttribute('aria-expanded', String(!state[key]));
             }
-            frameHeader.addEventListener('click', () => {
+            collapseButton.addEventListener('click', () => {
                 state[key] = !state[key];
                 persist();
                 applyFrame();
             });
             applyFrame();
         }
+        window.addEventListener('alai-memory-character-roster-ready', refreshMemoryCharacters);
+        refreshMemoryCharacters();
         let dragging = null;
         header.addEventListener('pointerdown', e => {
             if (e.target === toggle || toggle.contains(e.target) || e.button !== 0) return;
