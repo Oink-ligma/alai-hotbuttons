@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.11.3a
+// @version      1.11.4
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.11.3a)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.11.4)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -1463,6 +1463,30 @@
         }
     }
 
+    // Recover a reloaded bridge tab without discarding character selections.
+    function resumeBridgeHandshake() {
+        if (!bridgeWindow || bridgeWindow.closed) return;
+        stopBridgePolling();
+        bridgeReady = false;
+        memoryReadSupported = false;
+        bridgeAttempts = 0;
+        for (const item of memoryPending.values()) clearTimeout(item.timeout);
+        memoryPending.clear();
+        memoryPanelApi?.disconnected();
+        pendingRequestId = null;
+        detailedPending = null;
+        setTestEnabled(false);
+        bridgeStatus.textContent = '◇ Perchance: reconnecting...';
+        sendBridgeHello();
+        bridgeTimer = setInterval(sendBridgeHello, 3000);
+    }
+
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && bridgeWindow && !bridgeWindow.closed && !bridgeReady && bridgeTimer === null) {
+            resumeBridgeHandshake();
+        }
+    });
+
     function connectPerchance() {
         stopBridgePolling();
 
@@ -1763,6 +1787,13 @@
             return;
         }
 
+        if (data.type === 'nap-bridge-ready-announce') {
+            // A bridge reload creates a new document but retains this window handle.
+            // Re-handshake with the existing token; no new tab or character reset.
+            resumeBridgeHandshake();
+            return;
+        }
+
         console.info('[ALAI-DBG] bridge msg:', data.type, 'req:', data.requestId, 'char:', data.characterId, 'ok:', data.ok, 'err:', data.error);
 
         if (data.type === 'nap-memory-read-result') {
@@ -2001,7 +2032,7 @@
 
 
     // ============================================================
-    // PERSONAL MEMORY PANEL — v1.11.3a READ-ONLY MEMORY DISPLAY
+    // PERSONAL MEMORY PANEL — v1.11.4 READ-ONLY MEMORY DISPLAY
     // Separate from the existing Hotbuttons panel. The four text
     // areas display native Perchance text; NO writes occur here.
     // ============================================================
@@ -2037,7 +2068,7 @@
             fontWeight: 'bold'
         });
         const title = document.createElement('span');
-        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.11.3a)';
+        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.11.4)';
         const toggle = document.createElement('button');
         toggle.type = 'button';
         toggle.title = 'Collapse or expand memory panel';
