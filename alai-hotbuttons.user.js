@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.10.4b
+// @version      1.10.4c
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.10.4b)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.10.4c)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -133,7 +133,7 @@
     panelToggle.addEventListener('click', () => { uiSettings.panelCollapsed = !uiSettings.panelCollapsed; saveUI(); applyPanelCollapse(); });
     applyPanelCollapse();
     new ResizeObserver(() => { if (!uiSettings.panelCollapsed && toolbar.offsetWidth >= 230) { uiSettings.width = toolbar.offsetWidth; saveUI(); } }).observe(toolbar);
-    function section(title, key, nodes, actions = [], statusLight = null) {
+    function section(title, key, nodes, actions = [], statusLight = null, elapsedLabel = null) {
         const wrap = document.createElement('div');
         Object.assign(wrap.style, { width: '100%', minWidth: '0' });
         const header = document.createElement('div');
@@ -144,7 +144,9 @@
         label.style.flex = '1';
         header.append(toggle);
         if (statusLight) header.append(statusLight);
-        header.append(label, ...actions);
+        header.append(label);
+        if (elapsedLabel) header.append(elapsedLabel);
+        header.append(...actions);
         const body = document.createElement('div');
         Object.assign(body.style, { display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' });
         body.append(...nodes);
@@ -153,6 +155,35 @@
         apply();
         return wrap;
     }
+
+    // Track the latest yellow-to-green cycle for each independent section.
+    function makeElapsedTimer() {
+        const label = document.createElement('span');
+        label.textContent = '(— sec)';
+        Object.assign(label.style, {
+            color: '#aab4c2', fontSize: '9px', fontWeight: 'normal',
+            whiteSpace: 'nowrap', flexShrink: '0'
+        });
+        let startedAt = null;
+        let previousColor = null;
+        return {
+            label,
+            status(color) {
+                if (color === '#facc15') {
+                    if (previousColor !== '#facc15') startedAt = performance.now();
+                } else if (color === '#86efac' && previousColor === '#facc15' && startedAt !== null) {
+                    label.textContent = '(' + ((performance.now() - startedAt) / 1000).toFixed(1) + ' sec)';
+                    startedAt = null;
+                } else if (color !== '#86efac') {
+                    startedAt = null;
+                }
+                previousColor = color;
+            }
+        };
+    }
+    const captureTimer = makeElapsedTimer();
+    const basicTimer = makeElapsedTimer();
+    const detailedTimer = makeElapsedTimer();
 
     let dragging = false;
     let offsetX = 0;
@@ -356,6 +387,7 @@
     function setCaptureStatus(message, color = '#aaa') {
         captureStatus.textContent = '● ' + message;
         captureStatus.style.color = color;
+        captureTimer.status(color);
     }
 
     const contextBox = document.createElement('textarea');
@@ -843,6 +875,7 @@
     function setPreviewStatus(message, color = '#aaa') {
         previewStatus.textContent = '● ' + message;
         previewStatus.style.color = color;
+        basicTimer.status(color);
     }
 
     const resultBox = document.createElement('textarea');
@@ -902,12 +935,12 @@
     function syncCaptureLight() { captureLight.style.color = captureStatus.style.color || '#aaa'; }
     new MutationObserver(syncCaptureLight).observe(captureStatus, { attributes: true, attributeFilter: ['style'], childList: true });
     syncCaptureLight();
-    const conversationSection = section('Conversation Input', 'conversationCollapsed', [captureStatus, contextBox, bridgeStatus], [connectionLight, connectIcon, characterAnchor], captureLight);
+    const conversationSection = section('Conversation Input', 'conversationCollapsed', [captureStatus, contextBox, bridgeStatus], [connectionLight, connectIcon, characterAnchor], captureLight, captureTimer.label);
     panelContent.appendChild(conversationSection);
     testButton.textContent = '↻'; testButton.title = 'Refresh Context Information';
     const basicLight = document.createElement('span');
     basicLight.textContent = '●'; basicLight.title = 'Context update status';
-    panelContent.appendChild(section('Context Information', 'basicCollapsed', [previewStatus, resultBox], [testButton], basicLight));
+    panelContent.appendChild(section('Context Information', 'basicCollapsed', [previewStatus, resultBox], [testButton], basicLight, basicTimer.label));
 
     // Detailed Context diagnostics: manual, preview-only, never stored.
     const detailedLabel = document.createElement('div');
@@ -943,7 +976,7 @@
     detailedGenerateButton.textContent = '↻'; detailedGenerateButton.title = 'Generate Detailed Context from conversation and baseline';
     const detailedLight = document.createElement('span');
     detailedLight.textContent = '●'; detailedLight.title = 'Detailed update status';
-    panelContent.appendChild(section('Detailed Context', 'detailedCollapsed', [detailedStatus, detailedBox], [detailedTestButton, detailedGenerateButton], detailedLight));
+    panelContent.appendChild(section('Detailed Context', 'detailedCollapsed', [detailedStatus, detailedBox], [detailedTestButton, detailedGenerateButton], detailedLight, detailedTimer.label));
 
     // Outgoing injection: off by default. The current editable Detailed Context
     // textbox is the only context source; Perchance is not contacted on send.
@@ -1199,6 +1232,7 @@
     function setDetailedStatus(message, color = '#aaa') {
         detailedStatus.textContent = '● ' + message;
         detailedStatus.style.color = color;
+        detailedTimer.status(color);
     }
     function resetDetailed() {
         clearTimeout(detailedTimeout);
