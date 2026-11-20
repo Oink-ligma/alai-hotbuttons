@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.10.4a
+// @version      1.10.4b
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.10.4a)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.10.4b)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -1215,8 +1215,7 @@
             detailedBaseline.characterId !== characterSelect.value ||
             detailedPending || pendingRequestId) return;
         detailedBaseline.previousDetailed = detailedBox.value;
-        setDetailedStatus('ADOPTED — ' + detailedBox.value.length +
-            ' chars; local baseline (NOT SAVED)', '#86efac');
+        setDetailedStatus('ADOPTED — local baseline (NOT SAVED)', '#86efac');
         updateDetailedButtons();
     }
     function updateDetailedButtons() {
@@ -1641,10 +1640,9 @@
                 };
                 detailedRuns = 0;
                 detailedBox.value = previousDetailed;
-                setDetailedStatus('READ — ' + previousDetailed.length +
-                    ' chars; version ' + detailedBaseline.memVersionDetailed +
-                    '; prompt ' + (data.hasDetailedPrompt ? 'present' : 'MISSING') +
-                    '; enabled ' + String(data.enabled), '#86efac');
+                setDetailedStatus('READ — stored context loaded' +
+                    (data.hasDetailedPrompt ? '' : '; prompt MISSING') +
+                    (data.enabled === false ? '; disabled' : ''), '#86efac');
             } else if (data.ok && action === 'update' && typeof data.detailed === 'string') {
                 // Preserve the baseline returned by the generator for a later dry-run CAS.
                 detailedBaseline = {
@@ -1654,17 +1652,11 @@
                 };
                 detailedBox.value = data.detailed;
                 detailedRuns++;
-                setDetailedStatus('PREVIEW #' + detailedRuns + ' — ' + data.detailed.length +
-                    ' chars; stop ' + String(data.stopReason || 'unknown') +
-                    '; previous ' + detailedBaseline.previousDetailed.length +
-                    '; version ' + detailedBaseline.memVersionDetailed + ' (NOT SAVED)', '#86efac');
+                setDetailedStatus('PREVIEW COMPLETE (NOT SAVED)', '#86efac');
             } else if (data.ok && action === 'save') {
-                setDetailedStatus('DRY RUN PASSED — no data saved; version ' +
-                    String(data.memVersionDetailed), '#86efac');
+                setDetailedStatus('DRY RUN PASSED — no data saved', '#86efac');
             } else if (data.conflict) {
-                setDetailedStatus('CONFLICT — current ' +
-                    String(data.currentDetailed || '').length + ' chars; version ' +
-                    String(data.memVersionDetailed), '#fca5a5');
+                setDetailedStatus('CONFLICT — stored context changed; reload before retrying', '#fca5a5');
             } else {
                 setDetailedStatus('ERROR — ' + String(data.error || 'unknown') +
                     (data.stopReason ? '; stop ' + data.stopReason : '') +
