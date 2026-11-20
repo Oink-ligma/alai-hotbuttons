@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.11.0)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.11.2)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -2065,6 +2065,13 @@
         // Mirror the main Conversation Input character roster without changing its selection.
         const memorySelectors = [];
         const memoryFrames = new Map();
+        function cancelMemoryReads(frameName) {
+            for (const [requestId, item] of memoryPending) {
+                if (item.frameName !== frameName) continue;
+                clearTimeout(item.timeout);
+                memoryPending.delete(requestId);
+            }
+        }
         function setStatus(frame, message, color = '#aaa') {
             frame.status.textContent = message;
             frame.status.style.color = color;
@@ -2078,6 +2085,15 @@
             setStatus(frame, message);
         }
         function refreshMemoryCharacters() {
+            if (!bridgeReady) {
+                for (const { name, select } of memorySelectors) {
+                    select.replaceChildren(new Option('Connect Perchance...', ''));
+                    select.disabled = true;
+                    const frame = memoryFrames.get(name);
+                    if (frame) clearFrame(frame, 'Perchance disconnected');
+                }
+                return;
+            }
             const available = [...characterSelect.options].filter(option => option.value);
             for (const { name, select } of memorySelectors) {
                 const previous = select.value || String(state['character' + name] || '');
@@ -2097,6 +2113,7 @@
                 }
                 const frame = memoryFrames.get(name);
                 if (frame) {
+                    cancelMemoryReads(name);
                     clearFrame(frame, select.value ? 'Loading memories…' :
                         previous ? 'Character identity needs re-selection' : 'Choose a character');
                     if (select.value) queueRead(frame);
@@ -2139,6 +2156,7 @@
                 state['characterName' + name] = selected ? String(selected.name) : '';
                 persist();
                 const frame = memoryFrames.get(name);
+                cancelMemoryReads(name);
                 clearFrame(frame, selected ? 'Loading memories…' : 'Choose a character');
                 if (selected) queueRead(frame);
             });
