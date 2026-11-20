@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.10.4e
+// @version      1.10.5
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.10.4e)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.10.5)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -426,10 +426,34 @@
         const previousMax = Math.max(0, contextBox.scrollHeight - contextBox.clientHeight);
         const wasAtBottom = previousMax - previousTop <= 3;
         contextBox.value = text;
+        saveConversationSnapshot();
         contextBox.scrollTop = wasAtBottom
             ? contextBox.scrollHeight
             : Math.min(previousTop, Math.max(0, contextBox.scrollHeight - contextBox.clientHeight));
     }
+
+    // Tab-local recovery, scoped to this ChatGPT conversation.
+    // Perchance baseline versions and pending requests are never restored.
+    const RECOVERY_KEY = 'alai-hotbuttons-recovery-v1:' + location.pathname;
+    let recovery = { conversation: '', selectedCharacter: '', characters: {} };
+    try {
+        const saved = JSON.parse(sessionStorage.getItem(RECOVERY_KEY) || 'null');
+        if (saved && typeof saved === 'object') {
+            recovery.conversation = typeof saved.conversation === 'string' ? saved.conversation : '';
+            recovery.selectedCharacter = String(saved.selectedCharacter || '');
+            recovery.characters = saved.characters && typeof saved.characters === 'object' ? saved.characters : {};
+        }
+    } catch (_) {}
+    function persistRecovery() {
+        try { sessionStorage.setItem(RECOVERY_KEY, JSON.stringify(recovery)); }
+        catch (error) { console.warn('[ALAI] Recovery storage unavailable:', error); }
+    }
+    function saveConversationSnapshot() {
+        recovery.conversation = contextBox.value;
+        persistRecovery();
+    }
+    if (recovery.conversation) contextBox.value = recovery.conversation;
+    contextBox.addEventListener('input', saveConversationSnapshot);
 
     // Conversation section is mounted after bridge controls are created.
 
@@ -1003,6 +1027,28 @@
     });
     panelContent.appendChild(section('Outgoing Injection', 'injectionCollapsed', [injectionLabel, injectionStatus]));
 
+    function saveCharacterSnapshot() {
+        const id = characterSelect.value;
+        if (!id) return;
+        recovery.selectedCharacter = id;
+        recovery.characters[id] = { basic: resultBox.value, detailed: detailedBox.value };
+        persistRecovery();
+    }
+    function restoreCharacterSnapshot(id) {
+        const snapshot = recovery.characters[id];
+        resultBox.value = typeof snapshot?.basic === 'string' ? snapshot.basic : '';
+        detailedBox.value = typeof snapshot?.detailed === 'string' ? snapshot.detailed : '';
+        detailedBaseline = null; // Restored text is not a verified Perchance CAS baseline.
+        detailedRuns = 0;
+        if (snapshot) {
+            setPreviewStatus('RESTORED — session preview (NOT SAVED)', '#86efac');
+            setDetailedStatus('RESTORED — working copy; read Perchance to verify', '#86efac');
+        }
+        updateDetailedButtons();
+    }
+    resultBox.addEventListener('input', saveCharacterSnapshot);
+    detailedBox.addEventListener('input', saveCharacterSnapshot);
+
     const originalChatFetch = window.fetch;
     const contextStart = '[EXTERNAL CONTEXT — CLIENT MEMORY]';
     function makeInjectedText(context, userText) {
@@ -1267,7 +1313,10 @@
         }
     }
     characterSelect.addEventListener('change', () => {
+        recovery.selectedCharacter = characterSelect.value;
+        persistRecovery();
         resetDetailed();
+        restoreCharacterSnapshot(characterSelect.value);
         lastAutoKey = '';
         lastDetailedAutoKey = '';
         detailedAutoQueued = false;
@@ -1675,6 +1724,7 @@
                 };
                 detailedRuns = 0;
                 detailedBox.value = previousDetailed;
+                saveCharacterSnapshot();
                 setDetailedStatus('READ — stored context loaded' +
                     (data.hasDetailedPrompt ? '' : '; prompt MISSING') +
                     (data.enabled === false ? '; disabled' : ''), '#86efac');
@@ -1686,6 +1736,7 @@
                     memVersionDetailed: Number(data.memVersionDetailed) || 0
                 };
                 detailedBox.value = data.detailed;
+                saveCharacterSnapshot();
                 detailedRuns++;
                 setDetailedStatus('PREVIEW COMPLETE (NOT SAVED)', '#86efac');
             } else if (data.ok && action === 'save') {
@@ -1764,8 +1815,11 @@
                 }
             }
 
-            characterSelect.value = '';
+            const savedCharacter = recovery.selectedCharacter;
+            characterSelect.value = [...characterSelect.options].some(option => option.value === savedCharacter)
+                ? savedCharacter : '';
             resetDetailed();
+            if (characterSelect.value) restoreCharacterSnapshot(characterSelect.value);
 
             setTestEnabled(
                 characterSelect.options.length > 1 &&
@@ -1809,6 +1863,7 @@
                 typeof data.basic === 'string'
             ) {
                 resultBox.value = data.basic;
+                saveCharacterSnapshot();
 
                 bridgeStatus.textContent =
                     '● Perchance: Basic Context updated (not saved)';
