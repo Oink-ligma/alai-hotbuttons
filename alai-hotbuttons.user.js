@@ -1363,7 +1363,7 @@
         const characterId = characterSelect.value;
         if (!characterId) return;
         const requestId = crypto.randomUUID();
-        const data = { requestId, token: BRIDGE_TOKEN, characterId };
+        const data = { requestId, token: BRIDGE_TOKEN, characterId, wantMemory: true };
         if (action === 'read') {
             data.type = 'nap-detailed-read';
         } else if (action === 'update') {
@@ -1735,6 +1735,7 @@
                 requestId,
                 token: BRIDGE_TOKEN,
                 characterId,
+                wantMemory: true,
                 previousBasic: resultBox.value,
                 recentMessagesText
             },
@@ -1746,8 +1747,9 @@
     // PERCHANCE MESSAGE HANDLER
     // ============================================================
 
+    // Independent memory refresh over an existing, working bridge message type.
     function readPerchanceMemory(frameName, characterId) {
-        if (!bridgeReady || !memoryReadSupported || !bridgeWindow || bridgeWindow.closed) return false;
+        if (!bridgeReady || !bridgeWindow || bridgeWindow.closed) return false;
         const requestId = crypto.randomUUID();
         const id = String(characterId);
         const timeout = setTimeout(() => {
@@ -1758,8 +1760,8 @@
         memoryPending.set(requestId, { frameName, id, timeout });
         try {
             bridgeWindow.postMessage({
-                type: 'nap-memory-read', requestId, token: BRIDGE_TOKEN,
-                characterId: Number(id)
+                type: 'nap-detailed-read', requestId, token: BRIDGE_TOKEN,
+                characterId: Number(id), wantMemory: true
             }, WRAPPER_ORIGIN);
         } catch (error) {
             clearTimeout(timeout);
@@ -1767,6 +1769,13 @@
             memoryPanelApi?.response(frameName, id, { ok: false, error: 'post_message_failed', retryable: true });
         }
         return true;
+    }
+
+    function adoptPiggybackMemory(data, id) {
+        const snapshot = data.memory;
+        if (!snapshot || snapshot.ok !== true ||
+            String(snapshot.characterId) !== String(id)) return;
+        memoryPanelApi?.snapshot(String(id), snapshot);
     }
 
     window.addEventListener('message', event => {
@@ -1811,6 +1820,22 @@
 
         console.info('[ALAI-DBG] bridge msg:', data.type, 'req:', data.requestId, 'char:', data.characterId, 'ok:', data.ok, 'err:', data.error);
 
+        if (data.type === 'nap-detailed-read-result' && memoryPending.has(data.requestId)) {
+            const pending = memoryPending.get(data.requestId);
+            if (String(data.characterId) !== pending.id) return;
+            memoryPending.delete(data.requestId);
+            clearTimeout(pending.timeout);
+            if (data.memory?.ok === true && String(data.memory.characterId) === pending.id) {
+                memoryPanelApi?.response(pending.frameName, pending.id, data.memory);
+            } else {
+                memoryPanelApi?.response(pending.frameName, pending.id, {
+                    ok: false, error: String(data.memory?.error || data.error || 'memory_unavailable'),
+                    retryable: data.memory?.retryable !== false
+                });
+            }
+            return;
+        }
+
         if (data.type === 'nap-memory-read-result') {
             const pending = memoryPending.get(data.requestId);
             if (!pending) return;
@@ -1831,6 +1856,7 @@
             const expectedType = action === 'read' ? 'nap-detailed-read-result' :
                 action === 'update' ? 'nap-detailed-result' : 'nap-detailed-save-result';
             if (data.type !== expectedType) return;
+            adoptPiggybackMemory(data, detailedPending.characterId);
             detailedPending = null;
             clearTimeout(detailedTimeout);
             detailedTimeout = null;
@@ -1973,6 +1999,7 @@
             pendingRequestId &&
             data.requestId === pendingRequestId
         ) {
+            adoptPiggybackMemory(data, characterSelect.value);
             pendingRequestId = null;
             updateDetailedButtons();
 
@@ -2168,8 +2195,8 @@
                     clearFrame(frame, select.value ? 'Loading memories…' :
                         previous ? 'Character identity needs re-selection' : 'Choose a character');
                     if (select.value) {
-                        if (memoryReadSupported) queueRead(frame);
-                        else clearFrame(frame, 'Bridge tab is stale — close it and open a fresh one from the saved generator');
+                        queueRead(frame);
+                        
                     }
                 }
             }
@@ -2213,8 +2240,8 @@
                 cancelMemoryReads(name);
                 clearFrame(frame, selected ? 'Loading memories…' : 'Choose a character');
                 if (selected) {
-                    if (memoryReadSupported) queueRead(frame);
-                    else clearFrame(frame, 'Bridge tab is stale — close it and open a fresh one from the saved generator');
+                    queueRead(frame);
+                    
                 }
             });
             frameHeader.append(collapseButton, nameLabel, memoryCharacterSelect);
@@ -2269,7 +2296,7 @@
         }
         function queueRead(frame, force = false) {
             const id = frame.select.value;
-            if (!id || !bridgeReady || !memoryReadSupported || !bridgeWindow || bridgeWindow.closed) return;
+            if (!id || !bridgeReady || !bridgeWindow || bridgeWindow.closed) return;
             const record = characters.find(c => String(c.id) === id);
             if (!record || String(record.name) !== String(state['characterName' + frame.name] || '')) {
                 frame.select.value = '';
@@ -2286,6 +2313,13 @@
             readPerchanceMemory(frame.name, id);
         }
         memoryPanelApi = {
+            snapshot(id, data) {
+                for (const frame of memoryFrames.values()) {
+                    if (frame.select.value !== id) continue;
+                    cancelMemoryReads(frame.name);
+                    this.response(frame.name, id, data);
+                }
+            },
             disconnected() {
                 for (const frame of memoryFrames.values()) clearFrame(frame, 'Perchance disconnected');
             },
