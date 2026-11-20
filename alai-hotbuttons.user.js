@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.11.2
+// @version      1.11.3
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.11.2)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.11.3)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -822,6 +822,7 @@
 
     let bridgeWindow = null;
     let bridgeReady = false;
+    let memoryReadSupported = false;
     let bridgeTimer = null;
     let bridgeAttempts = 0;
     let characters = [];
@@ -1466,6 +1467,7 @@
         stopBridgePolling();
 
         bridgeReady = false;
+        memoryReadSupported = false;
         bridgeAttempts = 0;
         pendingRequestId = null;
         autoUpdateQueued = false;
@@ -1721,7 +1723,7 @@
     // ============================================================
 
     function readPerchanceMemory(frameName, characterId) {
-        if (!bridgeReady || !bridgeWindow || bridgeWindow.closed) return false;
+        if (!bridgeReady || !memoryReadSupported || !bridgeWindow || bridgeWindow.closed) return false;
         const requestId = crypto.randomUUID();
         const id = String(characterId);
         const timeout = setTimeout(() => {
@@ -1854,6 +1856,7 @@
             }
 
             bridgeReady = true;
+            memoryReadSupported = Array.isArray(data.caps) && data.caps.includes('memory-read');
             stopBridgePolling();
 
             characters = Array.isArray(data.characters)
@@ -1996,7 +1999,7 @@
 
 
     // ============================================================
-    // PERSONAL MEMORY PANEL — v1.11.2 READ-ONLY MEMORY DISPLAY
+    // PERSONAL MEMORY PANEL — v1.11.3 READ-ONLY MEMORY DISPLAY
     // Separate from the existing Hotbuttons panel. The four text
     // areas display native Perchance text; NO writes occur here.
     // ============================================================
@@ -2032,7 +2035,7 @@
             fontWeight: 'bold'
         });
         const title = document.createElement('span');
-        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.11.2)';
+        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.11.3)';
         const toggle = document.createElement('button');
         toggle.type = 'button';
         toggle.title = 'Collapse or expand memory panel';
@@ -2116,7 +2119,10 @@
                     cancelMemoryReads(name);
                     clearFrame(frame, select.value ? 'Loading memories…' :
                         previous ? 'Character identity needs re-selection' : 'Choose a character');
-                    if (select.value) queueRead(frame);
+                    if (select.value) {
+                        if (memoryReadSupported) queueRead(frame);
+                        else clearFrame(frame, 'Bridge tab is stale — close it and open a fresh one from the saved generator');
+                    }
                 }
             }
         }
@@ -2158,7 +2164,10 @@
                 const frame = memoryFrames.get(name);
                 cancelMemoryReads(name);
                 clearFrame(frame, selected ? 'Loading memories…' : 'Choose a character');
-                if (selected) queueRead(frame);
+                if (selected) {
+                    if (memoryReadSupported) queueRead(frame);
+                    else clearFrame(frame, 'Bridge tab is stale — close it and open a fresh one from the saved generator');
+                }
             });
             frameHeader.append(collapseButton, nameLabel, memoryCharacterSelect);
             memorySelectors.push({ name, select: memoryCharacterSelect });
@@ -2212,7 +2221,7 @@
         }
         function queueRead(frame, force = false) {
             const id = frame.select.value;
-            if (!id || !bridgeReady || !bridgeWindow || bridgeWindow.closed) return;
+            if (!id || !bridgeReady || !memoryReadSupported || !bridgeWindow || bridgeWindow.closed) return;
             const record = characters.find(c => String(c.id) === id);
             if (!record || String(record.name) !== String(state['characterName' + frame.name] || '')) {
                 frame.select.value = '';
