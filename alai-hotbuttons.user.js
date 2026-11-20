@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.10.5
+// @version      1.10.6
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.10.5)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.10.6)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -437,7 +437,7 @@
     const RECOVERY_KEY = 'alai-hotbuttons-recovery-v1:' + location.pathname;
     let recovery = { conversation: '', selectedCharacter: '', characters: {} };
     try {
-        const saved = JSON.parse(sessionStorage.getItem(RECOVERY_KEY) || 'null');
+        const saved = JSON.parse(localStorage.getItem(RECOVERY_KEY) || 'null');
         if (saved && typeof saved === 'object') {
             recovery.conversation = typeof saved.conversation === 'string' ? saved.conversation : '';
             recovery.selectedCharacter = String(saved.selectedCharacter || '');
@@ -445,7 +445,7 @@
         }
     } catch (_) {}
     function persistRecovery() {
-        try { sessionStorage.setItem(RECOVERY_KEY, JSON.stringify(recovery)); }
+        try { localStorage.setItem(RECOVERY_KEY, JSON.stringify(recovery)); }
         catch (error) { console.warn('[ALAI] Recovery storage unavailable:', error); }
     }
     function saveConversationSnapshot() {
