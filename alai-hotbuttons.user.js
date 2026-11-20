@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.11.3
+// @version      1.11.3a
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.11.3)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.11.3a)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -1763,6 +1763,8 @@
             return;
         }
 
+        console.info('[ALAI-DBG] bridge msg:', data.type, 'req:', data.requestId, 'char:', data.characterId, 'ok:', data.ok, 'err:', data.error);
+
         if (data.type === 'nap-memory-read-result') {
             const pending = memoryPending.get(data.requestId);
             if (!pending) return;
@@ -1999,7 +2001,7 @@
 
 
     // ============================================================
-    // PERSONAL MEMORY PANEL — v1.11.3 READ-ONLY MEMORY DISPLAY
+    // PERSONAL MEMORY PANEL — v1.11.3a READ-ONLY MEMORY DISPLAY
     // Separate from the existing Hotbuttons panel. The four text
     // areas display native Perchance text; NO writes occur here.
     // ============================================================
@@ -2035,7 +2037,7 @@
             fontWeight: 'bold'
         });
         const title = document.createElement('span');
-        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.11.3)';
+        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.11.3a)';
         const toggle = document.createElement('button');
         toggle.type = 'button';
         toggle.title = 'Collapse or expand memory panel';
