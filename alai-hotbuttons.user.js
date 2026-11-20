@@ -2272,12 +2272,20 @@
                 frame.personal.placeholder = 'Nothing stored yet';
                 frame.extended.placeholder = 'Nothing stored yet';
                 const stamp = x => x == null ? 'no stamp' : new Date(Number(x)).toLocaleTimeString();
-                const off = x => x === 'yes' ? '' : ' (updates off)';
+                // Native defaults differ: personal runs unless "no";
+                // extended runs only when explicitly "yes".
+                const personalOff = data.personalEnabled === 'no' ? ' (updates off)' : '';
+                const extendedOff = data.extendedEnabled === 'yes' ? '' : ' (updates off)';
+                const duplicateName = characters.filter(c =>
+                    String(c.name) === String(record.name)).length > 1;
+                const identityWarning = duplicateName ?
+                    ' · Duplicate name: verify character #' + id : '';
                 setStatus(frame, 'Read ' + new Date().toLocaleTimeString() +
-                    ' · P: ' + data.personal.length + ' chars' + off(data.personalEnabled) +
+                    ' · P: ' + data.personal.length + ' chars' + personalOff +
                     ' [' + stamp(data.personalUpdatedAt) + ']' +
-                    ' · E: ' + data.extended.length + ' chars' + off(data.extendedEnabled) +
-                    ' [' + stamp(data.extendedUpdatedAt) + ']', '#86efac');
+                    ' · E: ' + data.extended.length + ' chars' + extendedOff +
+                    ' [' + stamp(data.extendedUpdatedAt) + ']' + identityWarning,
+                    duplicateName ? '#facc15' : '#86efac');
             }
         };
         window.addEventListener('alai-memory-character-roster-ready', refreshMemoryCharacters);
