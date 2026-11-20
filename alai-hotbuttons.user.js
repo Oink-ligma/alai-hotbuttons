@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.10.4d
+// @version      1.10.4e
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.10.4d)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.10.4e)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -141,12 +141,13 @@
         const toggle = makeButton('', () => { uiSettings[key] = !uiSettings[key]; saveUI(); apply(); });
         toggle.style.padding = '3px 5px';
         const label = document.createElement('span'); label.textContent = title;
-        label.style.flex = '1';
         header.append(toggle);
         if (statusLight) header.append(statusLight);
         header.append(label);
         if (elapsedLabel) header.append(elapsedLabel);
-        header.append(...actions);
+        const actionSpacer = document.createElement('span');
+        actionSpacer.style.flex = '1';
+        header.append(actionSpacer, ...actions);
         const body = document.createElement('div');
         Object.assign(body.style, { display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' });
         body.append(...nodes);
