@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.11.4
+// @version      1.11.5
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.11.4)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.11.5)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -1770,6 +1770,21 @@
     }
 
     window.addEventListener('message', event => {
+        // Temporary diagnostic: observe bridge messages before origin/source gates.
+        // Do not process or trust these messages here; logging only.
+        const diagnosticData = event.data;
+        if (diagnosticData && typeof diagnosticData === 'object' &&
+            typeof diagnosticData.type === 'string' &&
+            diagnosticData.type.includes('nap-')) {
+            console.info('[ALAI-ROUTE]', {
+                type: diagnosticData.type,
+                origin: event.origin,
+                sourceIsBridgeWindow: event.source === bridgeWindow,
+                bridge: diagnosticData.bridge,
+                requestId: diagnosticData.requestId,
+                characterId: diagnosticData.characterId
+            });
+        }
         if (
             event.origin !== WRAPPER_ORIGIN ||
             event.source !== bridgeWindow
@@ -2032,7 +2047,7 @@
 
 
     // ============================================================
-    // PERSONAL MEMORY PANEL — v1.11.4 READ-ONLY MEMORY DISPLAY
+    // PERSONAL MEMORY PANEL — v1.11.5 READ-ONLY MEMORY DISPLAY
     // Separate from the existing Hotbuttons panel. The four text
     // areas display native Perchance text; NO writes occur here.
     // ============================================================
@@ -2068,7 +2083,7 @@
             fontWeight: 'bold'
         });
         const title = document.createElement('span');
-        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.11.4)';
+        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.11.5)';
         const toggle = document.createElement('button');
         toggle.type = 'button';
         toggle.title = 'Collapse or expand memory panel';
