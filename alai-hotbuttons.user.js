@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.10.6
+// @version      1.10.7
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.10.6)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.10.7)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -432,28 +432,54 @@
             : Math.min(previousTop, Math.max(0, contextBox.scrollHeight - contextBox.clientHeight));
     }
 
-    // Tab-local recovery, scoped to this ChatGPT conversation.
-    // Perchance baseline versions and pending requests are never restored.
-    const RECOVERY_KEY = 'alai-hotbuttons-recovery-v1:' + location.pathname;
-    let recovery = { conversation: '', selectedCharacter: '', characters: {} };
+    // One persistent Hotbuttons workspace across all ChatGPT conversations.
+    // Existing per-chat v1.10.6 snapshots are used only for one-time migration.
+    const RECOVERY_KEY = 'alai-hotbuttons-workspace-v1';
+    const LEGACY_RECOVERY_PREFIX = 'alai-hotbuttons-recovery-v1:';
+    let recovery = { conversation: '', basic: '', detailed: '', selectedCharacter: '', injectionEnabled: true };
     try {
-        const saved = JSON.parse(localStorage.getItem(RECOVERY_KEY) || 'null');
-        if (saved && typeof saved === 'object') {
-            recovery.conversation = typeof saved.conversation === 'string' ? saved.conversation : '';
-            recovery.selectedCharacter = String(saved.selectedCharacter || '');
-            recovery.characters = saved.characters && typeof saved.characters === 'object' ? saved.characters : {};
+        let saved = JSON.parse(localStorage.getItem(RECOVERY_KEY) || 'null');
+        if (!saved) {
+            let legacy = localStorage.getItem(LEGACY_RECOVERY_PREFIX + location.pathname);
+            if (!legacy) {
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (key?.startsWith(LEGACY_RECOVERY_PREFIX)) {
+                        legacy = localStorage.getItem(key);
+                        break;
+                    }
+                }
+            }
+            if (legacy) {
+                const old = JSON.parse(legacy);
+                const character = String(old?.selectedCharacter || '');
+                const snapshot = old?.characters?.[character] || {};
+                saved = {
+                    conversation: old?.conversation,
+                    basic: snapshot.basic,
+                    detailed: snapshot.detailed,
+                    selectedCharacter: character
+                };
+            }
         }
-    } catch (_) {}
+        if (saved && typeof saved === 'object') {
+            for (const field of ['conversation', 'basic', 'detailed', 'selectedCharacter']) {
+                if (typeof saved[field] === 'string') recovery[field] = saved[field];
+            }
+            if (typeof saved.injectionEnabled === 'boolean') recovery.injectionEnabled = saved.injectionEnabled;
+        }
+    } catch (error) { console.warn('[ALAI] Workspace restore unavailable:', error); }
     function persistRecovery() {
         try { localStorage.setItem(RECOVERY_KEY, JSON.stringify(recovery)); }
-        catch (error) { console.warn('[ALAI] Recovery storage unavailable:', error); }
+        catch (error) { console.warn('[ALAI] Workspace storage unavailable:', error); }
     }
     function saveConversationSnapshot() {
         recovery.conversation = contextBox.value;
         persistRecovery();
     }
-    if (recovery.conversation) contextBox.value = recovery.conversation;
+    contextBox.value = recovery.conversation;
     contextBox.addEventListener('input', saveConversationSnapshot);
+    persistRecovery();
 
     // Conversation section is mounted after bridge controls are created.
 
@@ -1027,27 +1053,30 @@
     });
     panelContent.appendChild(section('Outgoing Injection', 'injectionCollapsed', [injectionLabel, injectionStatus]));
 
+    // The textboxes are one workspace, not per-chat or per-character snapshots.
     function saveCharacterSnapshot() {
-        const id = characterSelect.value;
-        if (!id) return;
-        recovery.selectedCharacter = id;
-        recovery.characters[id] = { basic: resultBox.value, detailed: detailedBox.value };
+        recovery.basic = resultBox.value;
+        recovery.detailed = detailedBox.value;
         persistRecovery();
     }
-    function restoreCharacterSnapshot(id) {
-        const snapshot = recovery.characters[id];
-        resultBox.value = typeof snapshot?.basic === 'string' ? snapshot.basic : '';
-        detailedBox.value = typeof snapshot?.detailed === 'string' ? snapshot.detailed : '';
-        detailedBaseline = null; // Restored text is not a verified Perchance CAS baseline.
-        detailedRuns = 0;
-        if (snapshot) {
-            setPreviewStatus('RESTORED — session preview (NOT SAVED)', '#86efac');
-            setDetailedStatus('RESTORED — working copy; read Perchance to verify', '#86efac');
-        }
-        updateDetailedButtons();
+    resultBox.value = recovery.basic;
+    detailedBox.value = recovery.detailed;
+    if (recovery.basic || recovery.detailed) {
+        setPreviewStatus('RESTORED — Hotbuttons workspace', '#86efac');
+        setDetailedStatus('RESTORED — working copy (not verified Perchance memory)', '#86efac');
     }
     resultBox.addEventListener('input', saveCharacterSnapshot);
     detailedBox.addEventListener('input', saveCharacterSnapshot);
+    injectionToggle.checked = recovery.injectionEnabled;
+    injectionEnabled = recovery.injectionEnabled;
+    injectionStatus.textContent = injectionEnabled
+        ? 'Injection ON — next eligible text send uses Detailed Context'
+        : 'Injection OFF — normal ChatGPT sends';
+    injectionStatus.style.color = injectionEnabled ? '#86efac' : '#aaa';
+    injectionToggle.addEventListener('change', () => {
+        recovery.injectionEnabled = injectionToggle.checked;
+        persistRecovery();
+    });
 
     const originalChatFetch = window.fetch;
     const contextStart = '[EXTERNAL CONTEXT — CLIENT MEMORY]';
@@ -1315,8 +1344,10 @@
     characterSelect.addEventListener('change', () => {
         recovery.selectedCharacter = characterSelect.value;
         persistRecovery();
-        resetDetailed();
-        restoreCharacterSnapshot(characterSelect.value);
+        // Changing the bridge selection does not erase the Hotbuttons workspace.
+        detailedBaseline = null;
+        detailedRuns = 0;
+        updateDetailedButtons();
         lastAutoKey = '';
         lastDetailedAutoKey = '';
         detailedAutoQueued = false;
@@ -1818,8 +1849,9 @@
             const savedCharacter = recovery.selectedCharacter;
             characterSelect.value = [...characterSelect.options].some(option => option.value === savedCharacter)
                 ? savedCharacter : '';
-            resetDetailed();
-            if (characterSelect.value) restoreCharacterSnapshot(characterSelect.value);
+            // Reconnecting the bridge must not clear restored working text.
+            detailedBaseline = null;
+            detailedRuns = 0;
 
             setTestEnabled(
                 characterSelect.options.length > 1 &&
