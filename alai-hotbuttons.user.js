@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.10.7
+// @version      1.11.0
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.10.7)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.11.0)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -1953,5 +1953,159 @@
             }
         }
     });
+
+
+    // ============================================================
+    // PERSONAL MEMORY PANEL — v1.11.0 BASE UI ONLY
+    // Separate from the existing Hotbuttons panel. The four text
+    // areas are local drafts; NO Perchance read/write occurs here.
+    // ============================================================
+    (function createPersonalMemoryPanel() {
+        const STORAGE_KEY = 'alai-personal-memory-panel-ui-v1110';
+        let state = {};
+        try { state = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch (_) {}
+        const persist = () => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (_) {} };
+        const panel = document.createElement('div');
+        panel.id = 'alai-personal-memory-panel';
+        Object.assign(panel.style, {
+            position: 'fixed', right: '20px', bottom: '20px', zIndex: '9998',
+            width: (Number(state.width) || 390) + 'px',
+            height: (Number(state.height) || 350) + 'px',
+            minWidth: '270px', minHeight: '45px',
+            maxWidth: '95vw', maxHeight: '90vh',
+            resize: 'both', overflow: 'auto', boxSizing: 'border-box',
+            background: '#292929', color: '#eee', border: '1px solid #666',
+            borderRadius: '9px', boxShadow: '0 4px 18px #0005',
+            padding: '7px', font: '12px system-ui, sans-serif'
+        });
+        if (Number.isFinite(state.left) && Number.isFinite(state.top)) {
+            panel.style.left = state.left + 'px';
+            panel.style.top = state.top + 'px';
+            panel.style.right = 'auto';
+            panel.style.bottom = 'auto';
+        }
+        const header = document.createElement('div');
+        Object.assign(header.style, {
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            background: '#383838', borderRadius: '6px', padding: '6px',
+            cursor: 'move', userSelect: 'none', touchAction: 'none',
+            fontWeight: 'bold'
+        });
+        const title = document.createElement('span');
+        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.11.0)';
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.title = 'Collapse or expand memory panel';
+        Object.assign(toggle.style, {
+            color: '#eee', background: 'transparent', border: 0,
+            cursor: 'pointer', fontSize: '15px'
+        });
+        header.append(title, toggle);
+        panel.appendChild(header);
+        const content = document.createElement('div');
+        Object.assign(content.style, { paddingTop: '7px', display: 'grid', gap: '7px' });
+        panel.appendChild(content);
+        const notice = document.createElement('div');
+        notice.textContent = 'UI preview only — not connected to Perchance; text is not saved.';
+        Object.assign(notice.style, { color: '#bbb', fontSize: '10px' });
+        content.appendChild(notice);
+        function applyCollapsed() {
+            content.style.display = state.collapsed ? 'none' : 'grid';
+            toggle.textContent = state.collapsed ? '▸' : '▾';
+            panel.style.resize = state.collapsed ? 'horizontal' : 'both';
+            if (state.collapsed) panel.style.height = 'auto';
+            else panel.style.height = (Number(state.height) || 350) + 'px';
+        }
+        toggle.addEventListener('pointerdown', e => e.stopPropagation());
+        toggle.addEventListener('click', () => {
+            state.collapsed = !state.collapsed;
+            persist();
+            applyCollapsed();
+        });
+        for (const name of ['Alex', 'Aiko']) {
+            const frame = document.createElement('section');
+            Object.assign(frame.style, {
+                border: '1px solid #555', borderRadius: '7px',
+                overflow: 'hidden', minWidth: '0'
+            });
+            const frameHeader = document.createElement('button');
+            frameHeader.type = 'button';
+            Object.assign(frameHeader.style, {
+                width: '100%', textAlign: 'left', padding: '7px',
+                background: '#383838', color: '#eee', border: 0,
+                cursor: 'pointer', fontWeight: 'bold'
+            });
+            const body = document.createElement('div');
+            Object.assign(body.style, { padding: '7px', display: 'grid', gap: '7px' });
+            for (const field of ['Personal Memory', 'Extended Personal Memory']) {
+                const group = document.createElement('div');
+                Object.assign(group.style, { display: 'grid', gap: '4px', minWidth: '0' });
+                const label = document.createElement('label');
+                label.textContent = field;
+                const textarea = document.createElement('textarea');
+                textarea.setAttribute('aria-label', name + ' ' + field);
+                textarea.placeholder = 'Not connected to Perchance';
+                textarea.rows = field === 'Personal Memory' ? 4 : 6;
+                Object.assign(textarea.style, {
+                    boxSizing: 'border-box', width: '100%', minWidth: '100px',
+                    minHeight: '55px', resize: 'both', padding: '7px',
+                    borderRadius: '5px', border: '1px solid #666',
+                    background: '#1e1e1e', color: '#eee',
+                    font: '12px/1.4 system-ui, sans-serif'
+                });
+                group.append(label, textarea);
+                body.appendChild(group);
+            }
+            frame.append(frameHeader, body);
+            content.appendChild(frame);
+            const key = 'collapsed' + name;
+            function applyFrame() {
+                body.style.display = state[key] ? 'none' : 'grid';
+                frameHeader.textContent = (state[key] ? '▸  ' : '▾  ') + name;
+                frameHeader.setAttribute('aria-expanded', String(!state[key]));
+            }
+            frameHeader.addEventListener('click', () => {
+                state[key] = !state[key];
+                persist();
+                applyFrame();
+            });
+            applyFrame();
+        }
+        let dragging = null;
+        header.addEventListener('pointerdown', e => {
+            if (e.target === toggle || toggle.contains(e.target) || e.button !== 0) return;
+            const rect = panel.getBoundingClientRect();
+            dragging = { x: e.clientX, y: e.clientY, left: rect.left, top: rect.top };
+            header.setPointerCapture(e.pointerId);
+            e.preventDefault();
+        });
+        header.addEventListener('pointermove', e => {
+            if (!dragging) return;
+            const left = Math.max(0, Math.min(window.innerWidth - 60, dragging.left + e.clientX - dragging.x));
+            const top = Math.max(0, Math.min(window.innerHeight - 35, dragging.top + e.clientY - dragging.y));
+            panel.style.left = left + 'px';
+            panel.style.top = top + 'px';
+            panel.style.right = 'auto';
+            panel.style.bottom = 'auto';
+        });
+        function endDrag() {
+            if (!dragging) return;
+            dragging = null;
+            state.left = panel.offsetLeft;
+            state.top = panel.offsetTop;
+            persist();
+        }
+        header.addEventListener('pointerup', endDrag);
+        header.addEventListener('pointercancel', endDrag);
+        new ResizeObserver(() => {
+            if (!state.collapsed) {
+                state.width = panel.offsetWidth;
+                state.height = panel.offsetHeight;
+                persist();
+            }
+        }).observe(panel);
+        document.body.appendChild(panel);
+        applyCollapsed();
+    })();
 
 })();
