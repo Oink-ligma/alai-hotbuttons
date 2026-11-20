@@ -827,6 +827,8 @@
     let characters = [];
     let pendingRequestId = null;
     let detailedPending = null;
+    const memoryPending = new Map();
+    let memoryPanelApi = null;
     let detailedBaseline = null;
     let detailedRuns = 0;
     let detailedTimeout = null;
@@ -1472,12 +1474,16 @@
         lastAutoKey = '';
         resetDetailed();
         characters = [];
+        for (const item of memoryPending.values()) clearTimeout(item.timeout);
+        memoryPending.clear();
+        memoryPanelApi?.disconnected();
 
         setTestEnabled(false);
 
         characterSelect.replaceChildren(
             new Option('Connect first', '')
         );
+        window.dispatchEvent(new Event('alai-memory-character-roster-ready'));
 
         bridgeWindow = window.open(
             BRIDGE_URL,
@@ -1714,6 +1720,29 @@
     // PERCHANCE MESSAGE HANDLER
     // ============================================================
 
+    function readPerchanceMemory(frameName, characterId) {
+        if (!bridgeReady || !bridgeWindow || bridgeWindow.closed) return false;
+        const requestId = crypto.randomUUID();
+        const id = String(characterId);
+        const timeout = setTimeout(() => {
+            if (!memoryPending.has(requestId)) return;
+            memoryPending.delete(requestId);
+            memoryPanelApi?.response(frameName, id, { ok: false, error: 'timeout', retryable: true });
+        }, 12000);
+        memoryPending.set(requestId, { frameName, id, timeout });
+        try {
+            bridgeWindow.postMessage({
+                type: 'nap-memory-read', requestId, token: BRIDGE_TOKEN,
+                characterId: Number(id)
+            }, WRAPPER_ORIGIN);
+        } catch (error) {
+            clearTimeout(timeout);
+            memoryPending.delete(requestId);
+            memoryPanelApi?.response(frameName, id, { ok: false, error: 'post_message_failed', retryable: true });
+        }
+        return true;
+    }
+
     window.addEventListener('message', event => {
         if (
             event.origin !== WRAPPER_ORIGIN ||
@@ -1729,6 +1758,16 @@
             typeof data !== 'object' ||
             !['tm-basic-v1', 'tm-basic-v2'].includes(data.bridge)
         ) {
+            return;
+        }
+
+        if (data.type === 'nap-memory-read-result') {
+            const pending = memoryPending.get(data.requestId);
+            if (!pending) return;
+            if (data.characterId != null && String(data.characterId) !== pending.id) return;
+            memoryPending.delete(data.requestId);
+            clearTimeout(pending.timeout);
+            memoryPanelApi?.response(pending.frameName, pending.id, data);
             return;
         }
 
