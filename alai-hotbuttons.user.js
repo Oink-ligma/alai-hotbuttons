@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.11.1
+// @version      1.11.2
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -1996,9 +1996,9 @@
 
 
     // ============================================================
-    // PERSONAL MEMORY PANEL — v1.11.1 CHARACTER SELECTORS
+    // PERSONAL MEMORY PANEL — v1.11.2 READ-ONLY MEMORY DISPLAY
     // Separate from the existing Hotbuttons panel. The four text
-    // areas are local drafts; NO Perchance read/write occurs here.
+    // areas display native Perchance text; NO writes occur here.
     // ============================================================
     (function createPersonalMemoryPanel() {
         const STORAGE_KEY = 'alai-personal-memory-panel-ui-v1110';
@@ -2032,7 +2032,7 @@
             fontWeight: 'bold'
         });
         const title = document.createElement('span');
-        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.11.1)';
+        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.11.2)';
         const toggle = document.createElement('button');
         toggle.type = 'button';
         toggle.title = 'Collapse or expand memory panel';
@@ -2046,7 +2046,7 @@
         Object.assign(content.style, { paddingTop: '7px', display: 'grid', gap: '7px' });
         panel.appendChild(content);
         const notice = document.createElement('div');
-        notice.textContent = 'Character list uses the existing Perchance connection. Memory read/write is not connected; text is not saved.';
+        notice.textContent = 'Read-only view of Perchance memories. No memory writes.';
         Object.assign(notice.style, { color: '#bbb', fontSize: '10px' });
         content.appendChild(notice);
         function applyCollapsed() {
@@ -2064,19 +2064,42 @@
         });
         // Mirror the main Conversation Input character roster without changing its selection.
         const memorySelectors = [];
+        const memoryFrames = new Map();
+        function setStatus(frame, message, color = '#aaa') {
+            frame.status.textContent = message;
+            frame.status.style.color = color;
+        }
+        function clearFrame(frame, message) {
+            frame.personal.value = '';
+            frame.extended.value = '';
+            frame.personal.placeholder = message;
+            frame.extended.placeholder = message;
+            frame.lastStrings = null;
+            setStatus(frame, message);
+        }
         function refreshMemoryCharacters() {
             const available = [...characterSelect.options].filter(option => option.value);
             for (const { name, select } of memorySelectors) {
                 const previous = select.value || String(state['character' + name] || '');
+                const previousName = String(state['characterName' + name] || '');
+                const match = characters.find(c => String(c.id) === previous);
+                const safeId = match && previousName && String(match.name) === previousName ? previous : '';
                 select.replaceChildren(new Option(
                     available.length ? 'Choose character...' : 'Connect Perchance...', ''
                 ));
                 for (const option of available) select.appendChild(new Option(option.textContent, option.value));
                 select.disabled = !available.length;
-                select.value = available.some(option => option.value === previous) ? previous : '';
+                select.value = available.some(option => option.value === safeId) ? safeId : '';
                 if (!select.value && previous) {
                     state['character' + name] = '';
+                    state['characterName' + name] = '';
                     persist();
+                }
+                const frame = memoryFrames.get(name);
+                if (frame) {
+                    clearFrame(frame, select.value ? 'Loading memories…' :
+                        previous ? 'Character identity needs re-selection' : 'Choose a character');
+                    if (select.value) queueRead(frame);
                 }
             }
         }
@@ -2111,13 +2134,22 @@
                 fontSize: '10px', padding: '4px'
             });
             memoryCharacterSelect.addEventListener('change', () => {
-                state['character' + name] = memoryCharacterSelect.value;
+                const selected = characters.find(c => String(c.id) === memoryCharacterSelect.value);
+                state['character' + name] = selected ? String(selected.id) : '';
+                state['characterName' + name] = selected ? String(selected.name) : '';
                 persist();
+                const frame = memoryFrames.get(name);
+                clearFrame(frame, selected ? 'Loading memories…' : 'Choose a character');
+                if (selected) queueRead(frame);
             });
             frameHeader.append(collapseButton, nameLabel, memoryCharacterSelect);
             memorySelectors.push({ name, select: memoryCharacterSelect });
             const body = document.createElement('div');
             Object.assign(body.style, { padding: '7px', display: 'grid', gap: '7px' });
+            const frameState = {
+                name, select: memoryCharacterSelect, personal: null, extended: null,
+                status: null, lastStrings: null, lastRead: 0
+            };
             for (const field of ['Personal Memory', 'Extended Personal Memory']) {
                 const group = document.createElement('div');
                 Object.assign(group.style, { display: 'grid', gap: '4px', minWidth: '0' });
@@ -2125,7 +2157,8 @@
                 label.textContent = field;
                 const textarea = document.createElement('textarea');
                 textarea.setAttribute('aria-label', name + ' ' + field);
-                textarea.placeholder = 'Not connected to Perchance';
+                textarea.placeholder = 'Choose a character';
+                textarea.readOnly = true;
                 textarea.rows = field === 'Personal Memory' ? 4 : 6;
                 Object.assign(textarea.style, {
                     boxSizing: 'border-box', width: '100%', minWidth: '100px',
@@ -2134,9 +2167,16 @@
                     background: '#1e1e1e', color: '#eee',
                     font: '12px/1.4 system-ui, sans-serif'
                 });
+                frameState[field === 'Personal Memory' ? 'personal' : 'extended'] = textarea;
                 group.append(label, textarea);
                 body.appendChild(group);
             }
+            const status = document.createElement('div');
+            status.textContent = 'Choose a character';
+            Object.assign(status.style, { fontSize: '10px', color: '#aaa' });
+            frameState.status = status;
+            body.appendChild(status);
+            memoryFrames.set(name, frameState);
             frame.append(frameHeader, body);
             content.appendChild(frame);
             const key = 'collapsed' + name;
@@ -2152,8 +2192,84 @@
             });
             applyFrame();
         }
+        function queueRead(frame, force = false) {
+            const id = frame.select.value;
+            if (!id || !bridgeReady || !bridgeWindow || bridgeWindow.closed) return;
+            const record = characters.find(c => String(c.id) === id);
+            if (!record || String(record.name) !== String(state['characterName' + frame.name] || '')) {
+                frame.select.value = '';
+                state['character' + frame.name] = '';
+                state['characterName' + frame.name] = '';
+                persist();
+                clearFrame(frame, 'Identity changed — choose again');
+                return;
+            }
+            if ([...memoryPending.values()].some(item => item.frameName === frame.name)) return;
+            if (!force && Date.now() - frame.lastRead < 10000) return;
+            frame.lastRead = Date.now();
+            setStatus(frame, 'Reading Perchance…', '#facc15');
+            readPerchanceMemory(frame.name, id);
+        }
+        memoryPanelApi = {
+            disconnected() {
+                for (const frame of memoryFrames.values()) clearFrame(frame, 'Perchance disconnected');
+            },
+            response(name, id, data) {
+                const frame = memoryFrames.get(name);
+                if (!frame || frame.select.value !== id) return;
+                if (!data.ok) {
+                    const error = String(data.error || 'unknown');
+                    if (error === 'no_character') {
+                        frame.select.value = '';
+                        state['character' + name] = '';
+                        state['characterName' + name] = '';
+                        persist();
+                        clearFrame(frame, 'Character missing — choose again');
+                        return;
+                    }
+                    setStatus(frame, 'Read failed: ' + error +
+                        (data.retryable ? ' (retryable)' : ''), '#fca5a5');
+                    return;
+                }
+                const record = characters.find(c => String(c.id) === id);
+                if (!record || String(record.name) !== String(data.characterName) ||
+                    String(record.name) !== String(state['characterName' + name] || '')) {
+                    frame.select.value = '';
+                    state['character' + name] = '';
+                    state['characterName' + name] = '';
+                    persist();
+                    clearFrame(frame, 'Identity mismatch — choose again');
+                    return;
+                }
+                if (typeof data.personal !== 'string' || typeof data.extended !== 'string') {
+                    setStatus(frame, 'Unexpected memory response', '#fca5a5');
+                    return;
+                }
+                if (!frame.lastStrings || frame.lastStrings.personal !== data.personal ||
+                    frame.lastStrings.extended !== data.extended) {
+                    frame.personal.value = data.personal;
+                    frame.extended.value = data.extended;
+                    frame.lastStrings = { personal: data.personal, extended: data.extended };
+                }
+                frame.personal.placeholder = 'Nothing stored yet';
+                frame.extended.placeholder = 'Nothing stored yet';
+                const stamp = x => x == null ? 'no stamp' : new Date(Number(x)).toLocaleTimeString();
+                const off = x => x === 'yes' ? '' : ' (updates off)';
+                setStatus(frame, 'Read ' + new Date().toLocaleTimeString() +
+                    ' · P: ' + data.personal.length + ' chars' + off(data.personalEnabled) +
+                    ' [' + stamp(data.personalUpdatedAt) + ']' +
+                    ' · E: ' + data.extended.length + ' chars' + off(data.extendedEnabled) +
+                    ' [' + stamp(data.extendedUpdatedAt) + ']', '#86efac');
+            }
+        };
         window.addEventListener('alai-memory-character-roster-ready', refreshMemoryCharacters);
         refreshMemoryCharacters();
+        setInterval(() => {
+            for (const frame of memoryFrames.values()) queueRead(frame);
+        }, 45000);
+        window.addEventListener('focus', () => {
+            for (const frame of memoryFrames.values()) queueRead(frame, true);
+        });
         let dragging = null;
         header.addEventListener('pointerdown', e => {
             if (e.target === toggle || toggle.contains(e.target) || e.button !== 0) return;
