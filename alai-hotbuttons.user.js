@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.10.4
+// @version      1.10.4a
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.10.4)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.10.4a)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -386,6 +386,18 @@
         outline: 'none'
     });
 
+    // Preserve the reader's position when replacing captured conversation text.
+    // If already at the bottom, follow newly appended content instead.
+    function updateConversationInput(text) {
+        const previousTop = contextBox.scrollTop;
+        const previousMax = Math.max(0, contextBox.scrollHeight - contextBox.clientHeight);
+        const wasAtBottom = previousMax - previousTop <= 3;
+        contextBox.value = text;
+        contextBox.scrollTop = wasAtBottom
+            ? contextBox.scrollHeight
+            : Math.min(previousTop, Math.max(0, contextBox.scrollHeight - contextBox.clientHeight));
+    }
+
     // Conversation section is mounted after bridge controls are created.
 
     document.body.appendChild(toolbar);
@@ -668,7 +680,7 @@
 
         if (!windowResult) return;
 
-        contextBox.value = windowResult.text;
+        updateConversationInput(windowResult.text);
         stagedUserText = null;
         baselineId = pendingId;
 
@@ -1012,7 +1024,7 @@
             const original = message.content.parts[0];
             if (!original.trim() || original.includes(contextStart)) return;
             stagedUserText = 'Bill: ' + original;
-            contextBox.value = stagedUserText;
+            updateConversationInput(stagedUserText);
             setCaptureStatus('Original message captured; awaiting reply...', '#86efac');
         } catch (error) {
             console.warn('[ALAI] Original message capture skipped:', error);
