@@ -1316,8 +1316,8 @@
         detailedPending = null;
         detailedBaseline = null;
         detailedRuns = 0;
-        detailedBox.value = '';
-        setDetailedStatus('IDLE — read stored context first');
+        // Connection resets invalidate authority, not the workspace text.
+        setDetailedStatus('IDLE — working text retained; read stored context to verify');
         updateDetailedButtons();
     }
     function adoptDetailedBaseline() {
