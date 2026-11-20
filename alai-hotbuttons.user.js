@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.10.4c
+// @version      1.10.4d
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.10.4c)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.10.4d)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -978,21 +978,21 @@
     detailedLight.textContent = '●'; detailedLight.title = 'Detailed update status';
     panelContent.appendChild(section('Detailed Context', 'detailedCollapsed', [detailedStatus, detailedBox], [detailedTestButton, detailedGenerateButton], detailedLight, detailedTimer.label));
 
-    // Outgoing injection: off by default. The current editable Detailed Context
+    // Outgoing injection: on by default. The current editable Detailed Context
     // textbox is the only context source; Perchance is not contacted on send.
     const INJECTION_KEY = 'alex-hotbuttons-detailed-injection-v1';
-    let injectionEnabled = false;
+    let injectionEnabled = true;
     const injectionToggle = document.createElement('input');
     injectionToggle.type = 'checkbox';
-    injectionToggle.checked = false;
+    injectionToggle.checked = true;
     injectionToggle.title = 'Enable outgoing Detailed Context injection (this tab only)';
     const injectionLabel = document.createElement('label');
     injectionLabel.textContent = ' Inject Detailed Context on Send';
     injectionLabel.style.cssText = 'color:#ddd;font-size:10px;display:flex;align-items:center;gap:5px;cursor:pointer;';
     injectionLabel.prepend(injectionToggle);
     const injectionStatus = document.createElement('div');
-    injectionStatus.textContent = 'Injection OFF — normal ChatGPT sends';
-    injectionStatus.style.cssText = 'color:#aaa;font-size:10px;overflow-wrap:anywhere;';
+    injectionStatus.textContent = 'Injection ON — next eligible text send uses Detailed Context';
+    injectionStatus.style.cssText = 'color:#86efac;font-size:10px;overflow-wrap:anywhere;';
     injectionToggle.addEventListener('change', () => {
         injectionEnabled = injectionToggle.checked;
         injectionStatus.textContent = injectionEnabled
