@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.13.1)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.13.2)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -430,7 +430,7 @@
         cursor: 'move', userSelect: 'none', touchAction: 'none', fontWeight: 'bold'
     });
     const contextPanelTitle = document.createElement('span');
-    contextPanelTitle.textContent = '⋮⋮  Alex & Aiko — Context Memories (v1.13.1)';
+    contextPanelTitle.textContent = '⋮⋮  Alex & Aiko — Context Memories (v1.13.2)';
     const contextPanelToggle = document.createElement('button');
     contextPanelToggle.type = 'button';
     contextPanelToggle.title = 'Collapse or expand Context Memories';
@@ -2237,7 +2237,7 @@
             fontWeight: 'bold'
         });
         const title = document.createElement('span');
-        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.13)';
+        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.13.2)';
         const toggle = document.createElement('button');
         toggle.type = 'button';
         toggle.title = 'Collapse or expand memory panel';
