@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.11.9
+// @version      1.11.10
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -1082,6 +1082,11 @@
         persistRecovery();
     });
 
+    const MEMORY_RECORD_KEY = 'alai-personal-memory-records-v1';
+    let memoryRecords = {};
+    try { memoryRecords = JSON.parse(localStorage.getItem(MEMORY_RECORD_KEY) || '{}') || {}; } catch (_) {}
+    function persistMemoryRecords() { localStorage.setItem(MEMORY_RECORD_KEY, JSON.stringify(memoryRecords)); }
+    function localMemory(id) { return memoryRecords[String(id)] || { personal: '', extended: '' }; }
     const originalChatFetch = window.fetch;
     const contextStart = '[EXTERNAL CONTEXT — CLIENT MEMORY]';
     function makeInjectedText(context, userText) {
@@ -1108,9 +1113,15 @@
             typeof message.content.parts[0] !== 'string') return null;
         const userText = message.content.parts[0];
         if (!userText.trim() || userText.includes(contextStart)) return null;
-        const context = detailedBox.value.trim();
-        if (!context) return null;
-        message.content.parts[0] = makeInjectedText(context, userText);
+        const pieces = [];
+        if (detailedBox.value.trim()) pieces.push(detailedBox.value.trim());
+        for (const [id, label] of [['7', 'Alexandra'], ['18', 'Aiko']]) {
+            const memory = localMemory(id);
+            if (memory.personal?.trim()) pieces.push('[' + label + ' PERSONAL MEMORY]\n' + memory.personal.trim());
+            if (memory.extended?.trim()) pieces.push('[' + label + ' EXTENDED PERSONAL MEMORY]\n' + memory.extended.trim());
+        }
+        if (!pieces.length) return null;
+        message.content.parts[0] = makeInjectedText(pieces.join('\n\n'), userText);
         return JSON.stringify(payload);
     }
     function isChatSubmission(input) {
@@ -2128,7 +2139,7 @@
             fontWeight: 'bold'
         });
         const title = document.createElement('span');
-        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.11.9)';
+        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.11.10)';
         const toggle = document.createElement('button');
         toggle.type = 'button';
         toggle.title = 'Collapse or expand memory panel';
@@ -2142,7 +2153,7 @@
         Object.assign(content.style, { paddingTop: '7px', display: 'grid', gap: '7px' });
         panel.appendChild(content);
         const notice = document.createElement('div');
-        notice.textContent = 'Stored memories are read-only. Generate an editable draft, then explicitly Save.';
+        notice.textContent = 'Memories are stored in this browser. Perchance only processes. Review drafts before saving locally.';
         Object.assign(notice.style, { color: '#bbb', fontSize: '10px' });
         content.appendChild(notice);
         function applyCollapsed() {
@@ -2217,8 +2228,7 @@
                     clearFrame(frame, select.value ? 'Loading memories…' :
                         previous ? 'Character identity needs re-selection' : 'Choose a character');
                     if (select.value) {
-                        queueRead(frame);
-                        
+                        loadLocalFrame(frame);
                     }
                 }
             }
@@ -2260,11 +2270,8 @@
                 persist();
                 const frame = memoryFrames.get(name);
                 cancelMemoryReads(name);
-                clearFrame(frame, selected ? 'Loading memories…' : 'Choose a character');
-                if (selected) {
-                    queueRead(frame);
-                    
-                }
+                clearFrame(frame, selected ? 'Local memory ready' : 'Choose a character');
+                if (selected) loadLocalFrame(frame);
             });
             frameHeader.append(collapseButton, nameLabel, memoryCharacterSelect);
             memorySelectors.push({ name, select: memoryCharacterSelect });
@@ -2284,7 +2291,7 @@
                 const textarea = document.createElement('textarea');
                 textarea.setAttribute('aria-label', name + ' ' + field);
                 textarea.placeholder = 'Choose a character';
-                textarea.readOnly = true;
+                textarea.readOnly = false;
                 textarea.rows = field === 'Personal Memory' ? 4 : 6;
                 Object.assign(textarea.style, {
                     boxSizing: 'border-box', width: '100%', minWidth: '100px',
@@ -2310,7 +2317,7 @@
             generateButton.textContent = 'Generate draft';
             const saveButton = document.createElement('button');
             saveButton.type = 'button';
-            saveButton.textContent = 'Save approved';
+            saveButton.textContent = 'Save locally';
             saveButton.disabled = true;
             for (const button of [generateButton, saveButton]) {
                 Object.assign(button.style, { padding: '5px 7px', color: '#eee',
@@ -2336,6 +2343,13 @@
             }
             body.appendChild(preview);
             Object.assign(frameState, { preview, draftPersonal, draftExtended, generateButton, saveButton });
+            for (const field of ['personal', 'extended']) frameState[field].addEventListener('input', () => {
+                const id = frameState.select.value;
+                if (!id) return;
+                memoryRecords[id] = { ...localMemory(id), [field]: frameState[field].value };
+                persistMemoryRecords();
+                setStatus(frameState, 'LOCAL EDIT SAVED');
+            });
             generateButton.addEventListener('click', () => requestMemoryWrite(frameState, 'generate', mode.value));
             saveButton.addEventListener('click', () => requestMemoryWrite(frameState, 'save', mode.value));
             const status = document.createElement('div');
@@ -2359,8 +2373,15 @@
             });
             applyFrame();
         }
-        // Perchance memory writes use existing ferry-approved message types.
-        // Every operation is manually initiated; generation never saves.
+        function loadLocalFrame(frame) {
+            const record = localMemory(frame.select.value);
+            frame.personal.value = record.personal || '';
+            frame.extended.value = record.extended || '';
+            frame.lastStrings = { personal: frame.personal.value, extended: frame.extended.value };
+            frame.snapshot = null;
+            setStatus(frame, 'LOCAL — browser-stored memory loaded');
+        }
+        // Perchance generates drafts only; approved text stays in browser storage.
         function requestMemoryWrite(frame, action, mode) {
             const id = frame.select.value;
             if (!id || !bridgeReady || !bridgeWindow || bridgeWindow.closed) {
@@ -2372,7 +2393,7 @@
                 setStatus(frame, 'Character identity changed — reselect before continuing', '#fca5a5');
                 return;
             }
-            if ([...memoryWritePending.values()].some(p => p.frameName === frame.name)) return;
+            if ([...memoryWritePending.values()].some(p => p.frameName === frame.name) || pendingRequestId || detailedPending) return;
             // A pending read can arrive after Generate was clicked and mask the
             // actual failure with a normal "Read ... duplicate name" status.
             cancelMemoryReads(frame.name);
@@ -2385,10 +2406,11 @@
                     setStatus(frame, 'Capture conversation input first (max ' + MAX_RECENT_CHARS + ' chars)', '#fca5a5');
                     return;
                 }
-                // The server uses stored card copies when previous fields are omitted.
                 payload.type = 'nap-context-update';
                 payload.memoryMode = mode;
                 payload.recentMessagesText = recentMessagesText;
+                payload.previousPersonal = frame.personal.value;
+                payload.previousExtended = frame.extended.value;
                 frame.draft = null;
                 frame.preview.style.display = 'none';
                 frame.saveButton.disabled = true;
@@ -2404,18 +2426,23 @@
                     setStatus(frame, 'Approved memory cannot be blank', '#fca5a5');
                     return;
                 }
-                if (!window.confirm('Save approved ' + frame.name + ' memory changes to Perchance?')) return;
-                payload.type = 'nap-context-save';
-                payload.memorySave = true;
-                if (draft.hasPersonal) {
-                    payload.personal = personal;
-                    payload.expectedPreviousPersonal = draft.previousPersonal;
+                if (!window.confirm('Save approved ' + frame.name + ' memories in this browser only?')) return;
+                const current = localMemory(id);
+                memoryRecords[id] = {
+                    personal: draft.hasPersonal ? personal : current.personal,
+                    extended: draft.hasExtended ? extended : current.extended
+                };
+                try { persistMemoryRecords(); } catch (error) {
+                    setStatus(frame, 'Local save failed: ' + String(error), '#fca5a5');
+                    return;
                 }
-                if (draft.hasExtended) {
-                    payload.extended = extended;
-                    payload.expectedPreviousExtended = draft.previousExtended;
-                }
-                if (draft.memVersion != null) payload.expectedVersion = draft.memVersion;
+                frame.draft = null;
+                frame.preview.style.display = 'none';
+                frame.saveButton.disabled = true;
+                frame.lastWriteOutcome = false;
+                loadLocalFrame(frame);
+                setStatus(frame, 'SAVED LOCALLY — never sent to Perchance', '#86efac');
+                return;
                 frame.saveButton.disabled = true;
             }
             const timeout = setTimeout(() => {
@@ -2441,6 +2468,8 @@
             }
         }
         function queueRead(frame, force = false) {
+            // Perchance native memory is not canonical; never poll it.
+            return;
             const id = frame.select.value;
             if (!id || !bridgeReady || !bridgeWindow || bridgeWindow.closed) return;
             const record = characters.find(c => String(c.id) === id);
@@ -2586,12 +2615,6 @@
         };
         window.addEventListener('alai-memory-character-roster-ready', refreshMemoryCharacters);
         refreshMemoryCharacters();
-        setInterval(() => {
-            for (const frame of memoryFrames.values()) queueRead(frame);
-        }, 45000);
-        window.addEventListener('focus', () => {
-            for (const frame of memoryFrames.values()) queueRead(frame, true);
-        });
         let dragging = null;
         header.addEventListener('pointerdown', e => {
             if (e.target === toggle || toggle.contains(e.target) || e.button !== 0) return;
