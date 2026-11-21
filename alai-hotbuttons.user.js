@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.13.2
+// @version      1.13.3
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.13.2)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.13.3)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -430,7 +430,7 @@
         cursor: 'move', userSelect: 'none', touchAction: 'none', fontWeight: 'bold'
     });
     const contextPanelTitle = document.createElement('span');
-    contextPanelTitle.textContent = '⋮⋮  Alex & Aiko — Context Memories (v1.13.2)';
+    contextPanelTitle.textContent = '⋮⋮  Alex & Aiko — Context Memories (v1.13.3)';
     const contextPanelToggle = document.createElement('button');
     contextPanelToggle.type = 'button';
     contextPanelToggle.title = 'Collapse or expand Context Memories';
@@ -1302,6 +1302,8 @@
     // Registered by the personal-memory panel below; reads current textbox values.
     let readPersonalMemoriesForEmbed = () => [];
     const originalChatFetch = window.fetch;
+    // Retain the exact original text before the long injected message is rendered.
+    const pendingDisplayOriginals = [];
     const contextStart = '[EXTERNAL CONTEXT — CLIENT MEMORY]';
     function makeInjectedText(context, userText) {
         return contextStart + '\n' +
@@ -1339,7 +1341,7 @@
         if (extra) sections.push('[ADDITIONAL OUTGOING CONTEXT]\n' + extra + '\n[END ADDITIONAL OUTGOING CONTEXT]');
         const context = sections.join('\n\n');
         message.content.parts[0] = makeInjectedText(context, userText);
-        return JSON.stringify(payload);
+        return { body: JSON.stringify(payload), original: userText };
     }
     function isChatSubmission(input) {
         try {
@@ -1383,15 +1385,21 @@
             try {
                 const replacement = rewriteOutgoing(bodyText);
                 if (!replacement) return originalChatFetch.apply(self, originalArgs);
+                pendingDisplayOriginals.push({
+                    original: replacement.original,
+                    existing: new Set(document.querySelectorAll('[data-user-message-bubble="true"]'))
+                });
+                if (pendingDisplayOriginals.length > 20) pendingDisplayOriginals.shift();
+                scheduleBubbleCleanup();
                 injectionStatus.textContent = 'Injected outgoing context (' +
                     (detailedBox.value.trim().length + extraInputBox.value.trim().length +
                     readPersonalMemoriesForEmbed().reduce((sum, entry) => sum + entry[1].trim().length, 0)) + ' context chars)';
                 injectionStatus.style.color = '#86efac';
                 if (input instanceof Request) {
-                    const request = new Request(input, { ...(init || {}), body: replacement });
+                    const request = new Request(input, { ...(init || {}), body: replacement.body });
                     return originalChatFetch.call(self, request);
                 }
-                return originalChatFetch.call(self, input, { ...(init || {}), body: replacement });
+                return originalChatFetch.call(self, input, { ...(init || {}), body: replacement.body });
             } catch (error) {
                 injectionStatus.textContent = 'Injection skipped — ' + String(error.message || error);
                 injectionStatus.style.color = '#fca5a5';
@@ -1414,18 +1422,23 @@
             const segments = url.pathname.split('/').filter(Boolean);
             return url.origin === location.origin &&
                 segments[0] === 'backend-api' &&
-                segments[1] === 'conversations' &&
-                (segments.length === 3 ||
-                 (segments.length === 4 && segments[3] === 'messages'));
+                ((segments[1] === 'conversation' && segments.length === 3) ||
+                 (segments[1] === 'conversations' &&
+                  (segments.length === 3 ||
+                   (segments.length === 4 && segments[3] === 'messages'))));
         } catch (_) { return false; }
     }
     async function cleanIncomingHistory(response) {
         try {
             if (!response.ok || !response.headers.get('content-type')?.includes('json')) return response;
             const data = await response.clone().json();
-            if (!Array.isArray(data?.messages)) return response;
+            const messages = Array.isArray(data?.messages) ? data.messages :
+                data?.messages && typeof data.messages === 'object' ? Object.values(data.messages) :
+                data?.mapping && typeof data.mapping === 'object' ?
+                    Object.values(data.mapping).map(node => node?.message).filter(Boolean) : [];
+            if (!messages.length) return response;
             let count = 0;
-            for (const message of data.messages) {
+            for (const message of messages) {
                 if (message?.author?.role !== 'user' ||
                     !Array.isArray(message.content?.parts)) continue;
                 for (let i = 0; i < message.content.parts.length; i++) {
@@ -1479,10 +1492,22 @@
         cleanupScheduled = false;
         let cleaned = 0;
         document.querySelectorAll('[data-user-message-bubble="true"] div.text-size-chat.whitespace-pre-wrap').forEach(root => {
-            // React can re-render the original wrapper into a previously cleaned
-            // element. Always inspect its current content rather than trusting a
-            // persistent dataset marker from an earlier cleanup.
-            const original = originalFromInjectedText(root.textContent);
+            const visible = root.textContent;
+            if (!visible.trimStart().startsWith(contextStart)) return;
+            const bubble = root.closest('[data-user-message-bubble="true"]');
+            let original = originalFromInjectedText(visible);
+            if (original !== null && pendingDisplayOriginals.length &&
+                pendingDisplayOriginals[0].original === original) {
+                pendingDisplayOriginals.shift();
+            }
+            if (original === null && bubble && pendingDisplayOriginals.length) {
+                // Never assign a new send's text to an older injected bubble.
+                const pending = pendingDisplayOriginals[0];
+                if (!pending.existing.has(bubble)) {
+                    original = pending.original;
+                    pendingDisplayOriginals.shift();
+                }
+            }
             if (original === null) return;
             root.textContent = original;
             root.style.whiteSpace = 'pre-wrap';
@@ -2237,7 +2262,7 @@
             fontWeight: 'bold'
         });
         const title = document.createElement('span');
-        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.13.2)';
+        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.13.3)';
         const toggle = document.createElement('button');
         toggle.type = 'button';
         toggle.title = 'Collapse or expand memory panel';
