@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.12.3
+// @version      1.12.4
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.12.3)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.12.4)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -392,7 +392,7 @@
         cursor: 'move', userSelect: 'none', touchAction: 'none', fontWeight: 'bold'
     });
     const contextPanelTitle = document.createElement('span');
-    contextPanelTitle.textContent = '⋮⋮  Alex & Aiko — Context Memories (v1.12.3)';
+    contextPanelTitle.textContent = '⋮⋮  Alex & Aiko — Context Memories (v1.12.4)';
     const contextPanelToggle = document.createElement('button');
     contextPanelToggle.type = 'button';
     contextPanelToggle.title = 'Collapse or expand Context Memories';
@@ -890,6 +890,8 @@
         );
 
         autoUpdateFromReply();
+        // Notification only; existing context processing is unchanged.
+        window.dispatchEvent(new Event('alai-personal-memory-capture'));
     }
 
     setInterval(
@@ -2062,7 +2064,7 @@
 
 
     // ============================================================
-    // PERSONAL MEMORY PANEL — v1.12.3 BASE UI ONLY
+    // PERSONAL MEMORY PANEL — v1.12.4 BASE UI ONLY
     // Separate from the existing Hotbuttons panel. The four text
     // areas are local drafts; NO Perchance read/write occurs here.
     // ============================================================
@@ -2098,7 +2100,7 @@
             fontWeight: 'bold'
         });
         const title = document.createElement('span');
-        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.12.3)';
+        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.12.4)';
         const toggle = document.createElement('button');
         toggle.type = 'button';
         toggle.title = 'Collapse or expand memory panel';
@@ -2154,7 +2156,7 @@
                 !a || !liveRoster.some(c => c.id === a.id && c.name === a.name);
         }};
         const notice = document.createElement('div');
-        notice.textContent = 'Canonical memory is stored locally. Generate drafts, review, then accept.';
+        notice.textContent = 'Personal and Extended memories update automatically and save locally.';
         Object.assign(notice.style, { color: '#bbb', fontSize: '10px' });
         content.appendChild(notice);
         function applyCollapsed() {
@@ -2206,6 +2208,7 @@
                 else delete assignments[name];
                 saveAssignments();
                 refreshSelectors();
+                window.dispatchEvent(new Event('alai-personal-memory-capture'));
             });
             const textareas = {};
             for (const field of ['Personal Memory', 'Extended Personal Memory']) {
@@ -2234,14 +2237,12 @@
                 group.append(label, textarea);
                 body.appendChild(group);
             }
-            const mode = document.createElement('select');
-            for (const [v,label] of [['both','Both'],['personal','Personal'],['extended','Extended']]) mode.add(new Option(label,v));
-            const generate = document.createElement('button'); generate.type = 'button'; generate.textContent = 'Generate draft';
+            const generate = document.createElement('button'); generate.type = 'button'; generate.textContent = 'Automatic memory processing'; generate.hidden = true;
             const resultStatus = document.createElement('div'); resultStatus.style.color = '#facc15';
             const drafts = document.createElement('div'); drafts.style.cssText = 'display:grid;gap:6px;';
-            body.append(mode,generate,resultStatus,drafts);
+            body.append(resultStatus);
             frames[name] = { textareas, generate, status: resultStatus, drafts };
-            generate.addEventListener('click', () => {
+            const runMemory = () => {
                 const a = assignments[name];
                 if (!bridgeReady || !rosterReady || !bridgeWindow || bridgeWindow.closed || !a ||
                     !liveRoster.some(c => c.id === a.id && c.name === a.name)) return status(name,'Connect and validate character first');
@@ -2251,17 +2252,18 @@
                 const previousPersonal = textareas.personal.value, previousExtended = textareas.extended.value;
                 if (previousPersonal.length > 20000 || previousExtended.length > 20000) return status(name,'Previous memory too long');
                 const id = crypto.randomUUID(); drafts.replaceChildren();
-                pmPending = { id, name, assignment: { ...a } };
+                pmPending = { id, name, assignment: { ...a }, sourceKey: autoWindowKey(a.id, recentMessagesText) };
                 pmPending.timer = setTimeout(() => {
                     if (pmPending && pmPending.id === id) { pmPending = null; status(name,'Timeout; memory unchanged'); enable(); }
                 },180000);
                 enable(); status(name,'Processing; memory unchanged');
                 try {
                     bridgeWindow.postMessage({ type:'nap-context-update', requestId:id, token:BRIDGE_TOKEN,
-                        characterId:Number(a.id), memoryMode:mode.value, previousPersonal,
+                        characterId:Number(a.id), memoryMode:'both', previousPersonal,
                         previousExtended, recentMessagesText },WRAPPER_ORIGIN);
                 } catch(e) { clearTimeout(pmPending.timer); pmPending=null; status(name,'Send failed: '+e.message); enable(); }
-            });
+            };
+            frames[name].run = runMemory;
             frame.append(frameHeader, body);
             content.appendChild(frame);
             const key = 'collapsed' + name;
@@ -2277,37 +2279,64 @@
             });
             applyFrame();
         }
-        pmHandler = (pending,data) => {
-            const f=frames[pending.name], a=assignments[pending.name]; f.drafts.replaceChildren();
-            if (!a || !rosterReady || !liveRoster.some(c=>c.id===a.id && c.name===a.name) ||
-                a.id!==pending.assignment.id || a.name!==pending.assignment.name ||
-                String(data.characterId)!==a.id || (data.characterName && String(data.characterName)!==a.name)) {
-                status(pending.name,'Character mismatch; result rejected'); enable(); return;
+        const completed = {};
+        const queued = {};
+        let processingTimer = null;
+        function scheduleMemory() {
+            clearTimeout(processingTimer);
+            processingTimer = setTimeout(processMemoryQueue, 1500);
+        }
+        function processMemoryQueue() {
+            if (!bridgeReady || !rosterReady || !bridgeWindow || bridgeWindow.closed) return;
+            if (pmPending || pendingRequestId || detailedPending) { scheduleMemory(); return; }
+            const recent = contextBox.value.trim();
+            if (!recent || recent.length > 30000) return;
+            for (const name of ['Alex', 'Aiko']) {
+                const a = assignments[name];
+                if (!a || !liveRoster.some(c => c.id === a.id && c.name === a.name)) continue;
+                const key = autoWindowKey(a.id, recent);
+                if (completed[name] === key || queued[name] === key) continue;
+                queued[name] = key;
+                frames[name].run();
+                if (pmPending) return;
+                delete queued[name];
             }
-            let count=0;
-            for (const slot of ['personal','extended']) {
-                if (typeof data[slot]!=='string' || !data[slot].trim()) continue;
+        }
+        window.addEventListener('alai-personal-memory-capture', scheduleMemory);
+        contextBox.addEventListener('input', scheduleMemory);
+        window.addEventListener('alai-memory-roster', scheduleMemory);
+        pmHandler = (pending, data) => {
+            const f = frames[pending.name], a = assignments[pending.name];
+            if (!a || !rosterReady || !liveRoster.some(c => c.id === a.id && c.name === a.name) ||
+                a.id !== pending.assignment.id || a.name !== pending.assignment.name ||
+                String(data.characterId) !== a.id ||
+                (data.characterName && String(data.characterName) !== a.name)) {
+                status(pending.name, 'Character mismatch; result rejected');
+                delete queued[pending.name]; enable(); scheduleMemory(); return;
+            }
+            let count = 0;
+            const rec = record(pending.name);
+            const old = { personal: rec.personal, extended: rec.extended };
+            for (const slot of ['personal', 'extended']) {
+                if (typeof data[slot] !== 'string' || !data[slot].trim()) continue;
+                rec[slot] = data[slot];
                 count++;
-                const group=document.createElement('div'); group.style.cssText='display:grid;gap:4px;';
-                const label=document.createElement('strong'); label.textContent=slot+' draft';
-                const draft=document.createElement('textarea'); draft.value=data[slot]; draft.rows=6;
-                draft.style.cssText='width:100%;box-sizing:border-box;background:#222;color:white;';
-                const accept=document.createElement('button'); accept.type='button'; accept.textContent='Accept draft';
-                accept.addEventListener('click',()=>{
-                    const current=assignments[pending.name];
-                    if (!current || current.id!==a.id || current.name!==a.name || !rosterReady ||
-                        !liveRoster.some(c=>c.id===current.id && c.name===current.name)) return status(pending.name,'Assignment changed');
-                    if (draft.value.length>20000) return status(pending.name,'Draft too long');
-                    const rec=record(pending.name),old=rec[slot]; rec[slot]=draft.value;
-                    if (!store()) { rec[slot]=old; return; }
-                    f.textareas[slot].value=draft.value; accept.disabled=true; accept.textContent='Accepted locally';
-                    status(pending.name,slot+' accepted locally');
-                });
-                group.append(label,draft,accept); f.drafts.appendChild(group);
             }
-            status(pending.name,count+' draft(s) available'+(data.error?'; '+data.error:'')+
-                (data.personalError?'; '+data.personalError:'')+(data.extendedError?'; '+data.extendedError:''));
-            enable();
+            if (count && store()) {
+                for (const slot of ['personal', 'extended']) f.textareas[slot].value = rec[slot] || '';
+                completed[pending.name] = pending.sourceKey;
+                status(pending.name, count + ' memory fields updated locally' +
+                    (data.personalError ? '; ' + data.personalError : '') +
+                    (data.extendedError ? '; ' + data.extendedError : ''));
+            } else {
+                rec.personal = old.personal; rec.extended = old.extended;
+                status(pending.name, 'No usable memory returned; existing text preserved' +
+                    (data.error ? ': ' + data.error : ''));
+                // Avoid hammering a failing processor on an unchanged conversation.
+                completed[pending.name] = pending.sourceKey;
+            }
+            delete queued[pending.name];
+            enable(); scheduleMemory();
         };
         refreshSelectors(); enable();
         let dragging = null;
