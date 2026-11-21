@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.12.5
+// @version      1.12.6
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.12.5)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.12.6)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -361,6 +361,44 @@
         );
     }
 
+    // Copy controls only; no effect on context processing or memory storage.
+    function makeCopyIcon(title, getText) {
+        const b = document.createElement('button');
+        b.type = 'button'; b.textContent = '⧉'; b.title = title;
+        b.setAttribute('aria-label', title);
+        Object.assign(b.style, { marginLeft:'auto', padding:'2px 7px', flexShrink:'0',
+            border:'1px solid #777', borderRadius:'5px', background:'#424242',
+            color:'#eee', cursor:'pointer', fontSize:'13px', lineHeight:'18px' });
+        b.addEventListener('pointerdown', e => e.stopPropagation());
+        b.addEventListener('click', async e => {
+            e.stopPropagation();
+            try {
+                const value = getText();
+                if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(value);
+                else {
+                    const t = document.createElement('textarea');
+                    t.value = value; t.style.cssText = 'position:fixed;left:-9999px;top:0;';
+                    document.body.appendChild(t); t.select();
+                    const ok = document.execCommand('copy'); t.remove();
+                    if (!ok) throw Error('Clipboard unavailable');
+                }
+                b.textContent = '✓'; setTimeout(() => { b.textContent = '⧉'; }, 1200);
+            } catch (error) {
+                b.textContent = '!'; console.warn('[ALAI] Copy failed:', error);
+                setTimeout(() => { b.textContent = '⧉'; }, 2000);
+            }
+        });
+        return b;
+    }
+    function copyBundle(entries) {
+        return entries.map(([label, box]) => label + '\n' + box.value).join('\n\n');
+    }
+    function copyRow(label, button) {
+        const row = document.createElement('div');
+        Object.assign(row.style, { display:'flex', alignItems:'center', gap:'6px', minWidth:'0' });
+        label.style.flex = '1'; label.style.minWidth = '0';
+        row.append(label, button); return row;
+    }
     // Context Memories has its own movable, resizable window.
     // Hotbuttons retains only Bill's composer shortcuts.
     const CONTEXT_PANEL_KEY = 'alai-context-memories-panel-v1';
@@ -392,14 +430,18 @@
         cursor: 'move', userSelect: 'none', touchAction: 'none', fontWeight: 'bold'
     });
     const contextPanelTitle = document.createElement('span');
-    contextPanelTitle.textContent = '⋮⋮  Alex & Aiko — Context Memories (v1.12.5)';
+    contextPanelTitle.textContent = '⋮⋮  Alex & Aiko — Context Memories (v1.12.6)';
     const contextPanelToggle = document.createElement('button');
     contextPanelToggle.type = 'button';
     contextPanelToggle.title = 'Collapse or expand Context Memories';
     Object.assign(contextPanelToggle.style, {
         color: '#eee', background: 'transparent', border: 0, cursor: 'pointer', fontSize: '15px'
     });
-    contextPanelHeader.append(contextPanelTitle, contextPanelToggle);
+    const contextCopyAll = makeCopyIcon('Copy all Context Memories', () => copyBundle([
+        ['Conversation Input', contextBox], ['Context Information', resultBox], ['Detailed Context', detailedBox]
+    ]));
+    contextPanelTitle.style.flex = '1';
+    contextPanelHeader.append(contextPanelTitle, contextCopyAll, contextPanelToggle);
     contextPanel.appendChild(contextPanelHeader);
     const contextPanelContent = document.createElement('div');
     Object.assign(contextPanelContent.style, {
@@ -1085,12 +1127,13 @@
     function syncCaptureLight() { captureLight.style.color = captureStatus.style.color || '#aaa'; }
     new MutationObserver(syncCaptureLight).observe(captureStatus, { attributes: true, attributeFilter: ['style'], childList: true });
     syncCaptureLight();
-    const conversationSection = section('Conversation Input', 'conversationCollapsed', [captureStatus, contextBox, bridgeStatus], [connectionLight, connectIcon, characterAnchor], captureLight, captureTimer.label);
+    const conversationCopyRow = copyRow(captureStatus, makeCopyIcon('Copy Conversation Input', () => contextBox.value));
+    const conversationSection = section('Conversation Input', 'conversationCollapsed', [conversationCopyRow, contextBox, bridgeStatus], [connectionLight, connectIcon, characterAnchor], captureLight, captureTimer.label);
     contextPanelContent.appendChild(conversationSection);
     testButton.textContent = '↻'; testButton.title = 'Refresh Context Information';
     const basicLight = document.createElement('span');
     basicLight.textContent = '●'; basicLight.title = 'Context update status';
-    contextPanelContent.appendChild(section('Context Information', 'basicCollapsed', [previewStatus, resultBox], [testButton], basicLight, basicTimer.label));
+    contextPanelContent.appendChild(section('Context Information', 'basicCollapsed', [copyRow(previewStatus, makeCopyIcon('Copy Context Information', () => resultBox.value)), resultBox], [testButton], basicLight, basicTimer.label));
 
     // Detailed Context diagnostics: manual, preview-only, never stored.
     const detailedLabel = document.createElement('div');
@@ -1126,7 +1169,7 @@
     detailedGenerateButton.textContent = '↻'; detailedGenerateButton.title = 'Generate Detailed Context from conversation and baseline';
     const detailedLight = document.createElement('span');
     detailedLight.textContent = '●'; detailedLight.title = 'Detailed update status';
-    contextPanelContent.appendChild(section('Detailed Context', 'detailedCollapsed', [detailedStatus, detailedBox], [detailedTestButton, detailedGenerateButton], detailedLight, detailedTimer.label));
+    contextPanelContent.appendChild(section('Detailed Context', 'detailedCollapsed', [copyRow(detailedStatus, makeCopyIcon('Copy Detailed Context', () => detailedBox.value)), detailedBox], [detailedTestButton, detailedGenerateButton], detailedLight, detailedTimer.label));
 
     // Outgoing injection: on by default. The current editable Detailed Context
     // textbox is the only context source; Perchance is not contacted on send.
@@ -2062,7 +2105,7 @@
 
 
     // ============================================================
-    // PERSONAL MEMORY PANEL — v1.12.5 BASE UI ONLY
+    // PERSONAL MEMORY PANEL — v1.12.6 BASE UI ONLY
     // Separate from the existing Hotbuttons panel. The four text
     // areas are local drafts; NO Perchance read/write occurs here.
     // ============================================================
@@ -2098,7 +2141,7 @@
             fontWeight: 'bold'
         });
         const title = document.createElement('span');
-        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.12.5)';
+        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.12.6)';
         const toggle = document.createElement('button');
         toggle.type = 'button';
         toggle.title = 'Collapse or expand memory panel';
@@ -2106,7 +2149,14 @@
             color: '#eee', background: 'transparent', border: 0,
             cursor: 'pointer', fontSize: '15px'
         });
-        header.append(title, toggle);
+        const personalCopyAll = makeCopyIcon('Copy all Personal Memories', () => copyBundle([
+            ['Alex — Personal Memory', frames.Alex.textareas.personal],
+            ['Alex — Extended Personal Memory', frames.Alex.textareas.extended],
+            ['Aiko — Personal Memory', frames.Aiko.textareas.personal],
+            ['Aiko — Extended Personal Memory', frames.Aiko.textareas.extended]
+        ]));
+        title.style.flex = '1';
+        header.append(title, personalCopyAll, toggle);
         panel.appendChild(header);
         const content = document.createElement('div');
         Object.assign(content.style, { paddingTop: '7px', display: 'grid', gap: '7px' });
@@ -2183,6 +2233,15 @@
                 background: '#383838', color: '#eee', border: 0,
                 cursor: 'pointer', fontWeight: 'bold'
             });
+            const frameHeading = document.createElement('div');
+            Object.assign(frameHeading.style, { display:'flex', alignItems:'center', background:'#383838' });
+            frameHeader.style.flex = '1';
+            const characterCopyAll = makeCopyIcon('Copy all ' + name + ' memories', () => copyBundle([
+                [name + ' — Personal Memory', textareas.personal],
+                [name + ' — Extended Personal Memory', textareas.extended]
+            ]));
+            characterCopyAll.style.marginRight = '7px';
+            frameHeading.append(frameHeader, characterCopyAll);
             const body = document.createElement('div');
             Object.assign(body.style, { padding: '7px', display: 'grid', gap: '7px' });
             const selectorGroup = document.createElement('div');
@@ -2231,7 +2290,7 @@
                     background: '#1e1e1e', color: '#eee',
                     font: '12px/1.4 system-ui, sans-serif'
                 });
-                group.append(label, textarea);
+                group.append(copyRow(label, makeCopyIcon('Copy ' + name + ' ' + field, () => textarea.value)), textarea);
                 body.appendChild(group);
             }
             const generate = document.createElement('button'); generate.type = 'button'; generate.textContent = 'Automatic memory processing'; generate.hidden = true;
@@ -2261,7 +2320,7 @@
                 } catch(e) { clearTimeout(pmPending.timer); pmPending=null; status(name,'Send failed: '+e.message); enable(); }
             };
             frames[name].run = runMemory;
-            frame.append(frameHeader, body);
+            frame.append(frameHeading, body);
             content.appendChild(frame);
             const key = 'collapsed' + name;
             function applyFrame() {
