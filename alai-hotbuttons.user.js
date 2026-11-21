@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.12.2
+// @version      1.12.3
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.12.2)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.12.3)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -392,7 +392,7 @@
         cursor: 'move', userSelect: 'none', touchAction: 'none', fontWeight: 'bold'
     });
     const contextPanelTitle = document.createElement('span');
-    contextPanelTitle.textContent = '⋮⋮  Alex & Aiko — Context Memories (v1.12.2)';
+    contextPanelTitle.textContent = '⋮⋮  Alex & Aiko — Context Memories (v1.12.3)';
     const contextPanelToggle = document.createElement('button');
     contextPanelToggle.type = 'button';
     contextPanelToggle.title = 'Collapse or expand Context Memories';
@@ -923,6 +923,7 @@
             detail: { ready, characters: ready ? characters.map(c => ({ id: String(c.id), name: String(c.name) })) : [] }
         }));
     }
+    let pmPending = null, pmHandler = null;
     let pendingRequestId = null;
     let detailedPending = null;
     let detailedBaseline = null;
@@ -1893,6 +1894,11 @@
             return;
         }
 
+        if (data.type === 'nap-context-result' && pmPending && data.requestId === pmPending.id) {
+            const pending = pmPending; pmPending = null; clearTimeout(pending.timer);
+            if (pmHandler) pmHandler(pending, data);
+            return;
+        }
         if (data.type === 'nap-bridge-ready') {
             if (!data.ok) {
                 bridgeStatus.textContent =
@@ -2056,7 +2062,7 @@
 
 
     // ============================================================
-    // PERSONAL MEMORY PANEL — v1.12.2 BASE UI ONLY
+    // PERSONAL MEMORY PANEL — v1.12.3 BASE UI ONLY
     // Separate from the existing Hotbuttons panel. The four text
     // areas are local drafts; NO Perchance read/write occurs here.
     // ============================================================
@@ -2092,7 +2098,7 @@
             fontWeight: 'bold'
         });
         const title = document.createElement('span');
-        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.12.2)';
+        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.12.3)';
         const toggle = document.createElement('button');
         toggle.type = 'button';
         toggle.title = 'Collapse or expand memory panel';
@@ -2136,8 +2142,19 @@
                 event.detail.characters.filter(c => c && c.id && c.name) : [];
             refreshSelectors();
         });
+        const MEMORY_KEY = 'alai-personal-memory-canon-v1';
+        let canon = {};
+        try { canon = JSON.parse(localStorage.getItem(MEMORY_KEY)) || {}; } catch (_) {}
+        const frames = {};
+        const record = n => canon[n] || (canon[n] = { personal: '', extended: '' });
+        const store = () => { try { localStorage.setItem(MEMORY_KEY, JSON.stringify(canon)); return true; } catch (_) { alert('Memory save failed'); return false; } };
+        const status = (n, msg) => { if (frames[n]) frames[n].status.textContent = msg; };
+        const enable = () => { for (const [n,f] of Object.entries(frames)) {
+            const a = assignments[n]; f.generate.disabled = !!pmPending || !bridgeReady || !rosterReady ||
+                !a || !liveRoster.some(c => c.id === a.id && c.name === a.name);
+        }};
         const notice = document.createElement('div');
-        notice.textContent = 'Character assignments are saved locally. Memory text is not yet saved or processed.';
+        notice.textContent = 'Canonical memory is stored locally. Generate drafts, review, then accept.';
         Object.assign(notice.style, { color: '#bbb', fontSize: '10px' });
         content.appendChild(notice);
         function applyCollapsed() {
@@ -2190,6 +2207,7 @@
                 saveAssignments();
                 refreshSelectors();
             });
+            const textareas = {};
             for (const field of ['Personal Memory', 'Extended Personal Memory']) {
                 const group = document.createElement('div');
                 Object.assign(group.style, { display: 'grid', gap: '4px', minWidth: '0' });
@@ -2197,7 +2215,14 @@
                 label.textContent = field;
                 const textarea = document.createElement('textarea');
                 textarea.setAttribute('aria-label', name + ' ' + field);
-                textarea.placeholder = 'Not connected to Perchance';
+                const slot = field === 'Personal Memory' ? 'personal' : 'extended';
+                textarea.value = record(name)[slot] || '';
+                textarea.placeholder = 'Locally stored memory';
+                textareas[slot] = textarea;
+                textarea.addEventListener('input', () => {
+                    const rec = record(name), old = rec[slot]; rec[slot] = textarea.value;
+                    if (!store()) rec[slot] = old;
+                });
                 textarea.rows = field === 'Personal Memory' ? 4 : 6;
                 Object.assign(textarea.style, {
                     boxSizing: 'border-box', width: '100%', minWidth: '100px',
@@ -2209,6 +2234,34 @@
                 group.append(label, textarea);
                 body.appendChild(group);
             }
+            const mode = document.createElement('select');
+            for (const [v,label] of [['both','Both'],['personal','Personal'],['extended','Extended']]) mode.add(new Option(label,v));
+            const generate = document.createElement('button'); generate.type = 'button'; generate.textContent = 'Generate draft';
+            const resultStatus = document.createElement('div'); resultStatus.style.color = '#facc15';
+            const drafts = document.createElement('div'); drafts.style.cssText = 'display:grid;gap:6px;';
+            body.append(mode,generate,resultStatus,drafts);
+            frames[name] = { textareas, generate, status: resultStatus, drafts };
+            generate.addEventListener('click', () => {
+                const a = assignments[name];
+                if (!bridgeReady || !rosterReady || !bridgeWindow || bridgeWindow.closed || !a ||
+                    !liveRoster.some(c => c.id === a.id && c.name === a.name)) return status(name,'Connect and validate character first');
+                if (pmPending || pendingRequestId || detailedPending) return status(name,'Bridge busy; retry later');
+                const recentMessagesText = contextBox.value.trim();
+                if (!recentMessagesText || recentMessagesText.length > 30000) return status(name,'Conversation Input must be 1–30,000 chars');
+                const previousPersonal = textareas.personal.value, previousExtended = textareas.extended.value;
+                if (previousPersonal.length > 20000 || previousExtended.length > 20000) return status(name,'Previous memory too long');
+                const id = crypto.randomUUID(); drafts.replaceChildren();
+                pmPending = { id, name, assignment: { ...a } };
+                pmPending.timer = setTimeout(() => {
+                    if (pmPending && pmPending.id === id) { pmPending = null; status(name,'Timeout; memory unchanged'); enable(); }
+                },180000);
+                enable(); status(name,'Processing; memory unchanged');
+                try {
+                    bridgeWindow.postMessage({ type:'nap-context-update', requestId:id, token:BRIDGE_TOKEN,
+                        characterId:Number(a.id), memoryMode:mode.value, previousPersonal,
+                        previousExtended, recentMessagesText },WRAPPER_ORIGIN);
+                } catch(e) { clearTimeout(pmPending.timer); pmPending=null; status(name,'Send failed: '+e.message); enable(); }
+            });
             frame.append(frameHeader, body);
             content.appendChild(frame);
             const key = 'collapsed' + name;
@@ -2224,7 +2277,39 @@
             });
             applyFrame();
         }
-        refreshSelectors();
+        pmHandler = (pending,data) => {
+            const f=frames[pending.name], a=assignments[pending.name]; f.drafts.replaceChildren();
+            if (!a || !rosterReady || !liveRoster.some(c=>c.id===a.id && c.name===a.name) ||
+                a.id!==pending.assignment.id || a.name!==pending.assignment.name ||
+                String(data.characterId)!==a.id || (data.characterName && String(data.characterName)!==a.name)) {
+                status(pending.name,'Character mismatch; result rejected'); enable(); return;
+            }
+            let count=0;
+            for (const slot of ['personal','extended']) {
+                if (typeof data[slot]!=='string' || !data[slot].trim()) continue;
+                count++;
+                const group=document.createElement('div'); group.style.cssText='display:grid;gap:4px;';
+                const label=document.createElement('strong'); label.textContent=slot+' draft';
+                const draft=document.createElement('textarea'); draft.value=data[slot]; draft.rows=6;
+                draft.style.cssText='width:100%;box-sizing:border-box;background:#222;color:white;';
+                const accept=document.createElement('button'); accept.type='button'; accept.textContent='Accept draft';
+                accept.addEventListener('click',()=>{
+                    const current=assignments[pending.name];
+                    if (!current || current.id!==a.id || current.name!==a.name || !rosterReady ||
+                        !liveRoster.some(c=>c.id===current.id && c.name===current.name)) return status(pending.name,'Assignment changed');
+                    if (draft.value.length>20000) return status(pending.name,'Draft too long');
+                    const rec=record(pending.name),old=rec[slot]; rec[slot]=draft.value;
+                    if (!store()) { rec[slot]=old; return; }
+                    f.textareas[slot].value=draft.value; accept.disabled=true; accept.textContent='Accepted locally';
+                    status(pending.name,slot+' accepted locally');
+                });
+                group.append(label,draft,accept); f.drafts.appendChild(group);
+            }
+            status(pending.name,count+' draft(s) available'+(data.error?'; '+data.error:'')+
+                (data.personalError?'; '+data.personalError:'')+(data.extendedError?'; '+data.extendedError:''));
+            enable();
+        };
+        refreshSelectors(); enable();
         let dragging = null;
         header.addEventListener('pointerdown', e => {
             if (e.target === toggle || toggle.contains(e.target) || e.button !== 0) return;
