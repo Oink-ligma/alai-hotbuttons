@@ -1299,6 +1299,8 @@
         persistRecovery();
     });
 
+    // Registered by the personal-memory panel below; reads current textbox values.
+    let readPersonalMemoriesForEmbed = () => [];
     const originalChatFetch = window.fetch;
     const contextStart = '[EXTERNAL CONTEXT — CLIENT MEMORY]';
     function makeInjectedText(context, userText) {
@@ -1327,8 +1329,15 @@
         if (!userText.trim() || userText.includes(contextStart)) return null;
         const detailed = detailedBox.value.trim();
         const extra = extraInputBox.value.trim();
-        if (!detailed && !extra) return null;
-        const context = [detailed, extra ? '[ADDITIONAL OUTGOING CONTEXT]\n' + extra + '\n[END ADDITIONAL OUTGOING CONTEXT]' : ''].filter(Boolean).join('\n\n');
+        const memories = readPersonalMemoriesForEmbed();
+        if (!detailed && !extra && !memories.length) return null;
+        const sections = [];
+        if (detailed) sections.push('[DETAILED CONTEXT]\n' + detailed + '\n[END DETAILED CONTEXT]');
+        for (const [label, value] of memories) {
+            if (value.trim()) sections.push('[' + label + ']\n' + value.trim() + '\n[END ' + label + ']');
+        }
+        if (extra) sections.push('[ADDITIONAL OUTGOING CONTEXT]\n' + extra + '\n[END ADDITIONAL OUTGOING CONTEXT]');
+        const context = sections.join('\n\n');
         message.content.parts[0] = makeInjectedText(context, userText);
         return JSON.stringify(payload);
     }
@@ -1375,7 +1384,8 @@
                 const replacement = rewriteOutgoing(bodyText);
                 if (!replacement) return originalChatFetch.apply(self, originalArgs);
                 injectionStatus.textContent = 'Injected outgoing context (' +
-                    (detailedBox.value.trim().length + extraInputBox.value.trim().length) + ' context chars)';
+                    (detailedBox.value.trim().length + extraInputBox.value.trim().length +
+                    readPersonalMemoriesForEmbed().reduce((sum, entry) => sum + entry[1].trim().length, 0)) + ' context chars)';
                 injectionStatus.style.color = '#86efac';
                 if (input instanceof Request) {
                     const request = new Request(input, { ...(init || {}), body: replacement });
@@ -2282,6 +2292,12 @@
         let canon = {};
         try { canon = JSON.parse(localStorage.getItem(MEMORY_KEY)) || {}; } catch (_) {}
         const frames = {};
+        readPersonalMemoriesForEmbed = () => [
+            ['ALEX PERSONAL MEMORY', frames.Alex?.textareas.personal.value || ''],
+            ['ALEX EXTENDED PERSONAL MEMORY', frames.Alex?.textareas.extended.value || ''],
+            ['AIKO PERSONAL MEMORY', frames.Aiko?.textareas.personal.value || ''],
+            ['AIKO EXTENDED PERSONAL MEMORY', frames.Aiko?.textareas.extended.value || '']
+        ];
         window.addEventListener('alai-clear-personal-memory-text', () => {
             for (const name of ['Alex', 'Aiko']) {
                 canon[name] = { personal: '', extended: '' };
