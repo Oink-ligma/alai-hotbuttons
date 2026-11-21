@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.11.7
+// @version      1.11.8
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.11.7)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.11.8)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -2128,7 +2128,7 @@
             fontWeight: 'bold'
         });
         const title = document.createElement('span');
-        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.11.7)';
+        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.11.8)';
         const toggle = document.createElement('button');
         toggle.type = 'button';
         toggle.title = 'Collapse or expand memory panel';
@@ -2180,6 +2180,7 @@
             frame.lastStrings = null;
             frame.snapshot = null;
             frame.draft = null;
+            frame.lastWriteOutcome = false;
             if (frame.preview) frame.preview.style.display = 'none';
             setStatus(frame, message);
         }
@@ -2272,7 +2273,7 @@
             const frameState = {
                 name, select: memoryCharacterSelect, personal: null, extended: null,
                 status: null, lastStrings: null, lastRead: 0,
-                snapshot: null, draft: null, preview: null, draftPersonal: null,
+                snapshot: null, draft: null, lastWriteOutcome: false, preview: null, draftPersonal: null,
                 draftExtended: null, generateButton: null, saveButton: null
             };
             for (const field of ['Personal Memory', 'Extended Personal Memory']) {
@@ -2372,6 +2373,10 @@
                 return;
             }
             if ([...memoryWritePending.values()].some(p => p.frameName === frame.name)) return;
+            // A pending read can arrive after Generate was clicked and mask the
+            // actual failure with a normal "Read ... duplicate name" status.
+            cancelMemoryReads(frame.name);
+            frame.lastWriteOutcome = false;
             const requestId = crypto.randomUUID();
             const payload = { requestId, token: BRIDGE_TOKEN, characterId: Number(id) };
             if (action === 'generate') {
@@ -2419,6 +2424,7 @@
                 frame.generateButton.disabled = false;
                 frame.saveButton.disabled = true; // Unknown save outcome: re-read before retry.
                 frame.draft = null;
+                frame.lastWriteOutcome = true;
                 setStatus(frame, 'TIMEOUT — outcome unknown; refresh memories before retrying', '#fca5a5');
             }, 180000);
             memoryWritePending.set(requestId, { frameName: frame.name, id, action, timeout });
@@ -2430,6 +2436,7 @@
                 clearTimeout(timeout);
                 memoryWritePending.delete(requestId);
                 frame.generateButton.disabled = false;
+                frame.lastWriteOutcome = true;
                 setStatus(frame, 'Bridge send failed: ' + String(error), '#fca5a5');
             }
         }
@@ -2445,6 +2452,8 @@
                 clearFrame(frame, 'Identity changed — choose again');
                 return;
             }
+            // Background reads must never overwrite an active generation/save status.
+            if ([...memoryWritePending.values()].some(item => item.frameName === frame.name)) return;
             if ([...memoryPending.values()].some(item => item.frameName === frame.name)) return;
             if (!force && Date.now() - frame.lastRead < 10000) return;
             frame.lastRead = Date.now();
@@ -2456,6 +2465,7 @@
                 const frame = memoryFrames.get(name);
                 if (!frame || frame.select.value !== id) return;
                 frame.generateButton.disabled = false;
+                frame.lastWriteOutcome = true;
                 if (action === 'generate') {
                     const update = data.memoryUpdate;
                     if (!data.ok && !update) {
@@ -2523,6 +2533,7 @@
                         clearFrame(frame, 'Character missing — choose again');
                         return;
                     }
+                    if (frame.lastWriteOutcome) return;
                     setStatus(frame, 'Read failed: ' + error +
                         (data.retryable ? ' (retryable)' : ''), '#fca5a5');
                     return;
@@ -2542,6 +2553,9 @@
                     return;
                 }
                 frame.snapshot = data;
+                // Successful polling updates stored text, but should not erase the
+                // last Generate/Save outcome; leave it visible until user action.
+                const keepOutcome = frame.lastWriteOutcome === true;
                 if (!frame.lastStrings || frame.lastStrings.personal !== data.personal ||
                     frame.lastStrings.extended !== data.extended) {
                     frame.personal.value = data.personal;
@@ -2559,6 +2573,7 @@
                     String(c.name) === String(record.name)).length > 1;
                 const identityWarning = duplicateName ?
                     ' · Duplicate name: verify character #' + id : '';
+                if (keepOutcome) return;
                 setStatus(frame, 'Read ' + new Date().toLocaleTimeString() +
                     ' · P: ' + data.personal.length + ' chars' + personalOff +
                     ' [' + stamp(data.personalUpdatedAt) + ']' +
