@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.13
+// @version      1.13.1
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.13)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.13.1)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -430,7 +430,7 @@
         cursor: 'move', userSelect: 'none', touchAction: 'none', fontWeight: 'bold'
     });
     const contextPanelTitle = document.createElement('span');
-    contextPanelTitle.textContent = '⋮⋮  Alex & Aiko — Context Memories (v1.13)';
+    contextPanelTitle.textContent = '⋮⋮  Alex & Aiko — Context Memories (v1.13.1)';
     const contextPanelToggle = document.createElement('button');
     contextPanelToggle.type = 'button';
     contextPanelToggle.title = 'Collapse or expand Context Memories';
@@ -553,13 +553,22 @@
         outline: 'none'
     });
 
+    // Keep captured chat separate from the editable main-panel addition.
+    // This prevents repeated capture updates from duplicating the extra text.
+    let capturedConversationText = '';
+    function composeConversationInput() {
+        const extra = extraInputBox.value.trim();
+        return extra ? [capturedConversationText, '--- Additional Input ---', extra].filter(Boolean).join('\n\n') : capturedConversationText;
+    }
+
     // Preserve the reader's position when replacing captured conversation text.
     // If already at the bottom, follow newly appended content instead.
     function updateConversationInput(text) {
         const previousTop = contextBox.scrollTop;
         const previousMax = Math.max(0, contextBox.scrollHeight - contextBox.clientHeight);
         const wasAtBottom = previousMax - previousTop <= 3;
-        contextBox.value = text;
+        capturedConversationText = text;
+        contextBox.value = composeConversationInput();
         saveConversationSnapshot();
         contextBox.scrollTop = wasAtBottom
             ? contextBox.scrollHeight
@@ -612,8 +621,68 @@
         persistRecovery();
     }
     contextBox.value = recovery.conversation;
-    contextBox.addEventListener('input', saveConversationSnapshot);
+    capturedConversationText = recovery.conversation;
+    contextBox.addEventListener('input', () => {
+        capturedConversationText = contextBox.value;
+        saveConversationSnapshot();
+    });
     persistRecovery();
+
+    // Main Hotbuttons textbox; kept independently across reloads.
+    const EXTRA_INPUT_KEY = 'alai-hotbuttons-extra-input-v1';
+    const extraInputBox = document.createElement('textarea');
+    extraInputBox.id = 'alai-hotbuttons-extra-input';
+    extraInputBox.placeholder = 'Additional text to include with every Conversation Input update';
+    extraInputBox.setAttribute('aria-label', 'Additional Conversation Input');
+    Object.assign(extraInputBox.style, {
+        width: '100%', minHeight: '70px', height: '90px', resize: 'vertical',
+        boxSizing: 'border-box', background: '#1e1e1e', color: '#fff',
+        border: '1px solid #777', borderRadius: '6px', padding: '7px',
+        font: '11px system-ui, sans-serif'
+    });
+    try { extraInputBox.value = localStorage.getItem(EXTRA_INPUT_KEY) || ''; }
+    catch (error) { console.warn('[ALAI] Extra input restore unavailable:', error); }
+    const extraInputLabel = document.createElement('label');
+    extraInputLabel.htmlFor = extraInputBox.id;
+    extraInputLabel.textContent = 'Additional Conversation Input';
+    Object.assign(extraInputLabel.style, { width: '100%', color: '#b9c8db', fontSize: '10px', fontWeight: 'bold' });
+    panelContent.append(extraInputLabel, extraInputBox);
+    const clearAllTextButton = document.createElement('button');
+    clearAllTextButton.type = 'button';
+    clearAllTextButton.textContent = 'Delete All Text';
+    clearAllTextButton.title = 'Clear all locally saved Hotbuttons and Personal Memories textboxes';
+    Object.assign(clearAllTextButton.style, { background: '#713333', color: '#fff', border: '1px solid #ad6666', borderRadius: '5px', padding: '5px 7px', cursor: 'pointer' });
+    panelContent.appendChild(clearAllTextButton);
+    clearAllTextButton.addEventListener('click', () => {
+        if (!window.confirm('Delete ALL text in Conversation Input, Additional Input, Context Information, Detailed Context, and Alex/Aiko personal memories? Empty values will be saved locally.')) return;
+        capturedConversationText = '';
+        stagedUserText = null;
+        contextBox.value = '';
+        resultBox.value = '';
+        detailedBox.value = '';
+        extraInputBox.value = '';
+        recovery.conversation = '';
+        recovery.basic = '';
+        recovery.detailed = '';
+        try {
+            localStorage.setItem(EXTRA_INPUT_KEY, '');
+            persistRecovery();
+            window.dispatchEvent(new Event('alai-clear-personal-memory-text'));
+            setCaptureStatus('All local text cleared and saved', '#86efac');
+        } catch (error) { console.error('[ALAI] Clear all text failed:', error); alert('Unable to save cleared text.'); }
+    });
+    extraInputBox.addEventListener('input', () => {
+        try { localStorage.setItem(EXTRA_INPUT_KEY, extraInputBox.value); }
+        catch (error) { console.warn('[ALAI] Extra input save unavailable:', error); }
+        updateConversationInput(capturedConversationText);
+    });
+    // Recompose restored conversation once the extra input is available.
+    if (extraInputBox.value.trim()) {
+        const marker = '\n\n--- Additional Input ---\n\n';
+        const markerIndex = capturedConversationText.lastIndexOf(marker);
+        if (markerIndex >= 0) capturedConversationText = capturedConversationText.slice(0, markerIndex);
+        updateConversationInput(capturedConversationText);
+    }
 
     // Conversation section is mounted after bridge controls are created.
 
@@ -2214,6 +2283,16 @@
         let canon = {};
         try { canon = JSON.parse(localStorage.getItem(MEMORY_KEY)) || {}; } catch (_) {}
         const frames = {};
+        window.addEventListener('alai-clear-personal-memory-text', () => {
+            for (const name of ['Alex', 'Aiko']) {
+                canon[name] = { personal: '', extended: '' };
+                if (frames[name]) {
+                    frames[name].textareas.personal.value = '';
+                    frames[name].textareas.extended.value = '';
+                }
+            }
+            store();
+        });
         const record = n => canon[n] || (canon[n] = { personal: '', extended: '' });
         const store = () => { try { localStorage.setItem(MEMORY_KEY, JSON.stringify(canon)); return true; } catch (_) { alert('Memory save failed'); return false; } };
         const status = (n, msg) => { if (frames[n]) frames[n].status.textContent = msg; };
