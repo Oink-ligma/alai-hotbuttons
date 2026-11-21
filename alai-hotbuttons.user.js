@@ -1791,7 +1791,8 @@
         const snapshot = data.memory;
         if (!snapshot || snapshot.ok !== true ||
             String(snapshot.characterId) !== String(id)) return;
-        memoryPanelApi?.snapshot(String(id), snapshot);
+        // Perchance card snapshots are never authoritative personal memory.
+        return;
     }
 
     window.addEventListener('message', event => {
@@ -2201,7 +2202,7 @@
                     select.replaceChildren(new Option('Connect Perchance...', ''));
                     select.disabled = true;
                     const frame = memoryFrames.get(name);
-                    if (frame) clearFrame(frame, 'Perchance disconnected');
+                    if (frame) setStatus(frame, 'Perchance disconnected — local memory retained');
                 }
                 return;
             }
@@ -2225,7 +2226,7 @@
                 const frame = memoryFrames.get(name);
                 if (frame) {
                     cancelMemoryReads(name);
-                    clearFrame(frame, select.value ? 'Loading memories…' :
+                    clearFrame(frame, select.value ? 'Loading local memories…' :
                         previous ? 'Character identity needs re-selection' : 'Choose a character');
                     if (select.value) {
                         loadLocalFrame(frame);
@@ -2542,6 +2543,7 @@
                 }
             },
             snapshot(id, data) {
+                return; // Ignore Perchance-native memory fields.
                 for (const frame of memoryFrames.values()) {
                     if (frame.select.value !== id) continue;
                     cancelMemoryReads(frame.name);
@@ -2549,7 +2551,7 @@
                 }
             },
             disconnected() {
-                for (const frame of memoryFrames.values()) clearFrame(frame, 'Perchance disconnected');
+                for (const frame of memoryFrames.values()) setStatus(frame, 'Perchance disconnected — local memory retained');
             },
             response(name, id, data) {
                 const frame = memoryFrames.get(name);
