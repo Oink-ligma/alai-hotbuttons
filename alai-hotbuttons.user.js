@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.12.4
+// @version      1.12.5
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.12.4)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.12.5)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -392,7 +392,7 @@
         cursor: 'move', userSelect: 'none', touchAction: 'none', fontWeight: 'bold'
     });
     const contextPanelTitle = document.createElement('span');
-    contextPanelTitle.textContent = '⋮⋮  Alex & Aiko — Context Memories (v1.12.4)';
+    contextPanelTitle.textContent = '⋮⋮  Alex & Aiko — Context Memories (v1.12.5)';
     const contextPanelToggle = document.createElement('button');
     contextPanelToggle.type = 'button';
     contextPanelToggle.title = 'Collapse or expand Context Memories';
@@ -890,8 +890,6 @@
         );
 
         autoUpdateFromReply();
-        // Notification only; existing context processing is unchanged.
-        window.dispatchEvent(new Event('alai-personal-memory-capture'));
     }
 
     setInterval(
@@ -2064,7 +2062,7 @@
 
 
     // ============================================================
-    // PERSONAL MEMORY PANEL — v1.12.4 BASE UI ONLY
+    // PERSONAL MEMORY PANEL — v1.12.5 BASE UI ONLY
     // Separate from the existing Hotbuttons panel. The four text
     // areas are local drafts; NO Perchance read/write occurs here.
     // ============================================================
@@ -2100,7 +2098,7 @@
             fontWeight: 'bold'
         });
         const title = document.createElement('span');
-        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.12.4)';
+        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.12.5)';
         const toggle = document.createElement('button');
         toggle.type = 'button';
         toggle.title = 'Collapse or expand memory panel';
@@ -2208,7 +2206,6 @@
                 else delete assignments[name];
                 saveAssignments();
                 refreshSelectors();
-                window.dispatchEvent(new Event('alai-personal-memory-capture'));
             });
             const textareas = {};
             for (const field of ['Personal Memory', 'Extended Personal Memory']) {
@@ -2302,9 +2299,7 @@
                 delete queued[name];
             }
         }
-        window.addEventListener('alai-personal-memory-capture', scheduleMemory);
-        contextBox.addEventListener('input', scheduleMemory);
-        window.addEventListener('alai-memory-roster', scheduleMemory);
+        // Automatic Personal Memory requests paused to protect Context processing.
         pmHandler = (pending, data) => {
             const f = frames[pending.name], a = assignments[pending.name];
             if (!a || !rosterReady || !liveRoster.some(c => c.id === a.id && c.name === a.name) ||
