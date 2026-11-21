@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.12.1
+// @version      1.12.2
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.12.1)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.12.2)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -392,7 +392,7 @@
         cursor: 'move', userSelect: 'none', touchAction: 'none', fontWeight: 'bold'
     });
     const contextPanelTitle = document.createElement('span');
-    contextPanelTitle.textContent = '⋮⋮  Alex & Aiko — Context Memories (v1.12.1)';
+    contextPanelTitle.textContent = '⋮⋮  Alex & Aiko — Context Memories (v1.12.2)';
     const contextPanelToggle = document.createElement('button');
     contextPanelToggle.type = 'button';
     contextPanelToggle.title = 'Collapse or expand Context Memories';
@@ -917,6 +917,12 @@
     let bridgeTimer = null;
     let bridgeAttempts = 0;
     let characters = [];
+    // Publish the bridge roster for the independent Personal Memories frame selectors.
+    function publishMemoryRoster(ready) {
+        window.dispatchEvent(new CustomEvent('alai-memory-roster', {
+            detail: { ready, characters: ready ? characters.map(c => ({ id: String(c.id), name: String(c.name) })) : [] }
+        }));
+    }
     let pendingRequestId = null;
     let detailedPending = null;
     let detailedBaseline = null;
@@ -1564,6 +1570,7 @@
         lastAutoKey = '';
         resetDetailed();
         characters = [];
+        publishMemoryRoster(false);
 
         setTestEnabled(false);
 
@@ -1912,6 +1919,7 @@
             characters = Array.isArray(data.characters)
                 ? data.characters
                 : [];
+            publishMemoryRoster(true);
 
             characterSelect.replaceChildren(
                 new Option('Choose character...', '')
@@ -2048,7 +2056,7 @@
 
 
     // ============================================================
-    // PERSONAL MEMORY PANEL — v1.12.1 BASE UI ONLY
+    // PERSONAL MEMORY PANEL — v1.12.2 BASE UI ONLY
     // Separate from the existing Hotbuttons panel. The four text
     // areas are local drafts; NO Perchance read/write occurs here.
     // ============================================================
@@ -2084,7 +2092,7 @@
             fontWeight: 'bold'
         });
         const title = document.createElement('span');
-        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.12.1)';
+        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.12.2)';
         const toggle = document.createElement('button');
         toggle.type = 'button';
         toggle.title = 'Collapse or expand memory panel';
@@ -2097,8 +2105,39 @@
         const content = document.createElement('div');
         Object.assign(content.style, { paddingTop: '7px', display: 'grid', gap: '7px' });
         panel.appendChild(content);
+        const frameSelectors = [];
+        let liveRoster = [];
+        let rosterReady = false;
+        const ASSIGNMENTS_KEY = 'alai-personal-memory-character-assignments-v1';
+        let assignments = {};
+        try { assignments = JSON.parse(localStorage.getItem(ASSIGNMENTS_KEY)) || {}; } catch (_) {}
+        function saveAssignments() {
+            try { localStorage.setItem(ASSIGNMENTS_KEY, JSON.stringify(assignments)); } catch (_) {}
+        }
+        function refreshSelectors() {
+            for (const { name, select, status } of frameSelectors) {
+                const saved = assignments[name];
+                select.replaceChildren(new Option(rosterReady ? 'Select character...' : 'Connect Perchance first', ''));
+                for (const character of liveRoster) {
+                    select.add(new Option(character.name + ' (#' + character.id + ')', character.id));
+                }
+                select.disabled = !rosterReady;
+                const valid = saved && liveRoster.some(c => c.id === saved.id && c.name === saved.name);
+                select.value = valid ? saved.id : '';
+                status.textContent = !rosterReady ? 'Waiting for bridge roster' :
+                    valid ? 'Assigned: ' + saved.name + ' (#' + saved.id + ')' :
+                    saved ? 'Saved character mismatch — select again' : 'Choose a character';
+                status.style.color = valid ? '#86efac' : '#facc15';
+            }
+        }
+        window.addEventListener('alai-memory-roster', event => {
+            rosterReady = event.detail?.ready === true;
+            liveRoster = rosterReady && Array.isArray(event.detail.characters) ?
+                event.detail.characters.filter(c => c && c.id && c.name) : [];
+            refreshSelectors();
+        });
         const notice = document.createElement('div');
-        notice.textContent = 'UI preview only — not connected to Perchance; text is not saved.';
+        notice.textContent = 'Character assignments are saved locally. Memory text is not yet saved or processed.';
         Object.assign(notice.style, { color: '#bbb', fontSize: '10px' });
         content.appendChild(notice);
         function applyCollapsed() {
@@ -2129,6 +2168,28 @@
             });
             const body = document.createElement('div');
             Object.assign(body.style, { padding: '7px', display: 'grid', gap: '7px' });
+            const selectorGroup = document.createElement('div');
+            Object.assign(selectorGroup.style, { display: 'grid', gap: '4px' });
+            const selectorLabel = document.createElement('label');
+            selectorLabel.textContent = 'Processing character';
+            const selector = document.createElement('select');
+            selector.setAttribute('aria-label', name + ' processing character');
+            Object.assign(selector.style, {
+                width: '100%', minWidth: '0', boxSizing: 'border-box', padding: '6px',
+                background: '#424242', color: '#eee', border: '1px solid #777', borderRadius: '5px'
+            });
+            const assignmentStatus = document.createElement('div');
+            assignmentStatus.style.cssText = 'font-size:10px;color:#facc15;';
+            selectorGroup.append(selectorLabel, selector, assignmentStatus);
+            body.appendChild(selectorGroup);
+            frameSelectors.push({ name, select: selector, status: assignmentStatus });
+            selector.addEventListener('change', () => {
+                const selected = liveRoster.find(c => c.id === selector.value);
+                if (selected) assignments[name] = { id: selected.id, name: selected.name };
+                else delete assignments[name];
+                saveAssignments();
+                refreshSelectors();
+            });
             for (const field of ['Personal Memory', 'Extended Personal Memory']) {
                 const group = document.createElement('div');
                 Object.assign(group.style, { display: 'grid', gap: '4px', minWidth: '0' });
@@ -2163,6 +2224,7 @@
             });
             applyFrame();
         }
+        refreshSelectors();
         let dragging = null;
         header.addEventListener('pointerdown', e => {
             if (e.target === toggle || toggle.contains(e.target) || e.button !== 0) return;
