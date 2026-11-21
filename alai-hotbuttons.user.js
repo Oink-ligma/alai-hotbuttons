@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.11.5
+// @version      1.11.6
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.11.5)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.11.6)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
