@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.12.6
+// @version      1.12.7
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.12.6)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.12.7)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -430,7 +430,7 @@
         cursor: 'move', userSelect: 'none', touchAction: 'none', fontWeight: 'bold'
     });
     const contextPanelTitle = document.createElement('span');
-    contextPanelTitle.textContent = '⋮⋮  Alex & Aiko — Context Memories (v1.12.6)';
+    contextPanelTitle.textContent = '⋮⋮  Alex & Aiko — Context Memories (v1.12.7)';
     const contextPanelToggle = document.createElement('button');
     contextPanelToggle.type = 'button';
     contextPanelToggle.title = 'Collapse or expand Context Memories';
@@ -2105,7 +2105,7 @@
 
 
     // ============================================================
-    // PERSONAL MEMORY PANEL — v1.12.6 BASE UI ONLY
+    // PERSONAL MEMORY PANEL — v1.12.7 BASE UI ONLY
     // Separate from the existing Hotbuttons panel. The four text
     // areas are local drafts; NO Perchance read/write occurs here.
     // ============================================================
@@ -2141,7 +2141,7 @@
             fontWeight: 'bold'
         });
         const title = document.createElement('span');
-        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.12.6)';
+        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.12.7)';
         const toggle = document.createElement('button');
         toggle.type = 'button';
         toggle.title = 'Collapse or expand memory panel';
@@ -2241,7 +2241,22 @@
                 [name + ' — Extended Personal Memory', textareas.extended]
             ]));
             characterCopyAll.style.marginRight = '7px';
-            frameHeading.append(frameHeader, characterCopyAll);
+            const refreshMemories = document.createElement('button');
+            refreshMemories.type = 'button';
+            refreshMemories.textContent = '↻';
+            refreshMemories.title = 'Refresh ' + name + ' Personal and Extended Memories through Perchance';
+            refreshMemories.setAttribute('aria-label', refreshMemories.title);
+            Object.assign(refreshMemories.style, {
+                padding:'2px 7px', flexShrink:'0', border:'1px solid #777',
+                borderRadius:'5px', background:'#424242', color:'#eee',
+                cursor:'pointer', fontSize:'16px', lineHeight:'18px', marginRight:'6px'
+            });
+            refreshMemories.addEventListener('pointerdown', e => e.stopPropagation());
+            refreshMemories.addEventListener('click', e => {
+                e.stopPropagation();
+                frames[name].run();
+            });
+            frameHeading.append(frameHeader, refreshMemories, characterCopyAll);
             const body = document.createElement('div');
             Object.assign(body.style, { padding: '7px', display: 'grid', gap: '7px' });
             const selectorGroup = document.createElement('div');
