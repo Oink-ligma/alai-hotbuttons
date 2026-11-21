@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.11.10
+// @version      1.12.0
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.11.9)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.12.0)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -822,15 +822,11 @@
 
     let bridgeWindow = null;
     let bridgeReady = false;
-    let memoryReadSupported = false;
     let bridgeTimer = null;
     let bridgeAttempts = 0;
     let characters = [];
     let pendingRequestId = null;
     let detailedPending = null;
-    const memoryPending = new Map();
-    const memoryWritePending = new Map();
-    let memoryPanelApi = null;
     let detailedBaseline = null;
     let detailedRuns = 0;
     let detailedTimeout = null;
@@ -1082,11 +1078,6 @@
         persistRecovery();
     });
 
-    const MEMORY_RECORD_KEY = 'alai-personal-memory-records-v1';
-    let memoryRecords = {};
-    try { memoryRecords = JSON.parse(localStorage.getItem(MEMORY_RECORD_KEY) || '{}') || {}; } catch (_) {}
-    function persistMemoryRecords() { localStorage.setItem(MEMORY_RECORD_KEY, JSON.stringify(memoryRecords)); }
-    function localMemory(id) { return memoryRecords[String(id)] || { personal: '', extended: '' }; }
     const originalChatFetch = window.fetch;
     const contextStart = '[EXTERNAL CONTEXT — CLIENT MEMORY]';
     function makeInjectedText(context, userText) {
@@ -1113,15 +1104,9 @@
             typeof message.content.parts[0] !== 'string') return null;
         const userText = message.content.parts[0];
         if (!userText.trim() || userText.includes(contextStart)) return null;
-        const pieces = [];
-        if (detailedBox.value.trim()) pieces.push(detailedBox.value.trim());
-        for (const [id, label] of [['7', 'Alexandra'], ['18', 'Aiko']]) {
-            const memory = localMemory(id);
-            if (memory.personal?.trim()) pieces.push('[' + label + ' PERSONAL MEMORY]\n' + memory.personal.trim());
-            if (memory.extended?.trim()) pieces.push('[' + label + ' EXTENDED PERSONAL MEMORY]\n' + memory.extended.trim());
-        }
-        if (!pieces.length) return null;
-        message.content.parts[0] = makeInjectedText(pieces.join('\n\n'), userText);
+        const context = detailedBox.value.trim();
+        if (!context) return null;
+        message.content.parts[0] = makeInjectedText(context, userText);
         return JSON.stringify(payload);
     }
     function isChatSubmission(input) {
@@ -1375,7 +1360,7 @@
         const characterId = characterSelect.value;
         if (!characterId) return;
         const requestId = crypto.randomUUID();
-        const data = { requestId, token: BRIDGE_TOKEN, characterId, wantMemory: true };
+        const data = { requestId, token: BRIDGE_TOKEN, characterId };
         if (action === 'read') {
             data.type = 'nap-detailed-read';
         } else if (action === 'update') {
@@ -1475,37 +1460,10 @@
         }
     }
 
-    // Recover a reloaded bridge tab without discarding character selections.
-    function resumeBridgeHandshake() {
-        if (!bridgeWindow || bridgeWindow.closed) return;
-        stopBridgePolling();
-        bridgeReady = false;
-        memoryReadSupported = false;
-        bridgeAttempts = 0;
-        for (const item of memoryPending.values()) clearTimeout(item.timeout);
-        memoryPending.clear();
-        for (const item of memoryWritePending.values()) clearTimeout(item.timeout);
-        memoryWritePending.clear();
-        memoryPanelApi?.disconnected();
-        pendingRequestId = null;
-        detailedPending = null;
-        setTestEnabled(false);
-        bridgeStatus.textContent = '◇ Perchance: reconnecting...';
-        sendBridgeHello();
-        bridgeTimer = setInterval(sendBridgeHello, 3000);
-    }
-
-    document.addEventListener('visibilitychange', () => {
-        if (!document.hidden && bridgeWindow && !bridgeWindow.closed && !bridgeReady && bridgeTimer === null) {
-            resumeBridgeHandshake();
-        }
-    });
-
     function connectPerchance() {
         stopBridgePolling();
 
         bridgeReady = false;
-        memoryReadSupported = false;
         bridgeAttempts = 0;
         pendingRequestId = null;
         autoUpdateQueued = false;
@@ -1514,18 +1472,12 @@
         lastAutoKey = '';
         resetDetailed();
         characters = [];
-        for (const item of memoryPending.values()) clearTimeout(item.timeout);
-        memoryPending.clear();
-        for (const item of memoryWritePending.values()) clearTimeout(item.timeout);
-        memoryWritePending.clear();
-        memoryPanelApi?.disconnected();
 
         setTestEnabled(false);
 
         characterSelect.replaceChildren(
             new Option('Connect first', '')
         );
-        window.dispatchEvent(new Event('alai-memory-character-roster-ready'));
 
         bridgeWindow = window.open(
             BRIDGE_URL,
@@ -1751,7 +1703,6 @@
                 requestId,
                 token: BRIDGE_TOKEN,
                 characterId,
-                wantMemory: true,
                 previousBasic: resultBox.value,
                 recentMessagesText
             },
@@ -1763,54 +1714,7 @@
     // PERCHANCE MESSAGE HANDLER
     // ============================================================
 
-    // Independent memory refresh over an existing, working bridge message type.
-    function readPerchanceMemory(frameName, characterId) {
-        if (!bridgeReady || !bridgeWindow || bridgeWindow.closed) return false;
-        const requestId = crypto.randomUUID();
-        const id = String(characterId);
-        const timeout = setTimeout(() => {
-            if (!memoryPending.has(requestId)) return;
-            memoryPending.delete(requestId);
-            memoryPanelApi?.response(frameName, id, { ok: false, error: 'timeout', retryable: true });
-        }, 12000);
-        memoryPending.set(requestId, { frameName, id, timeout });
-        try {
-            bridgeWindow.postMessage({
-                type: 'nap-detailed-read', requestId, token: BRIDGE_TOKEN,
-                characterId: Number(id), wantMemory: true
-            }, WRAPPER_ORIGIN);
-        } catch (error) {
-            clearTimeout(timeout);
-            memoryPending.delete(requestId);
-            memoryPanelApi?.response(frameName, id, { ok: false, error: 'post_message_failed', retryable: true });
-        }
-        return true;
-    }
-
-    function adoptPiggybackMemory(data, id) {
-        const snapshot = data.memory;
-        if (!snapshot || snapshot.ok !== true ||
-            String(snapshot.characterId) !== String(id)) return;
-        // Perchance card snapshots are never authoritative personal memory.
-        return;
-    }
-
     window.addEventListener('message', event => {
-        // Temporary diagnostic: observe bridge messages before origin/source gates.
-        // Do not process or trust these messages here; logging only.
-        const diagnosticData = event.data;
-        if (diagnosticData && typeof diagnosticData === 'object' &&
-            typeof diagnosticData.type === 'string' &&
-            diagnosticData.type.includes('nap-')) {
-            console.info('[ALAI-ROUTE]', {
-                type: diagnosticData.type,
-                origin: event.origin,
-                sourceIsBridgeWindow: event.source === bridgeWindow,
-                bridge: diagnosticData.bridge,
-                requestId: diagnosticData.requestId,
-                characterId: diagnosticData.characterId
-            });
-        }
         if (
             event.origin !== WRAPPER_ORIGIN ||
             event.source !== bridgeWindow
@@ -1828,54 +1732,6 @@
             return;
         }
 
-        if (data.type === 'nap-bridge-ready-announce') {
-            // A bridge reload creates a new document but retains this window handle.
-            // Re-handshake with the existing token; no new tab or character reset.
-            resumeBridgeHandshake();
-            return;
-        }
-
-        console.info('[ALAI-DBG] bridge msg:', data.type, 'req:', data.requestId, 'char:', data.characterId, 'ok:', data.ok, 'err:', data.error);
-
-        // Memory generation/save replies share proven context envelopes, but have
-        // independent pending requests: never feed them into Basic Context.
-        if ((data.type === 'nap-context-result' || data.type === 'nap-context-save-result') &&
-            memoryWritePending.has(data.requestId)) {
-            const pending = memoryWritePending.get(data.requestId);
-            if (String(data.characterId) !== pending.id ||
-                data.type !== (pending.action === 'generate' ? 'nap-context-result' : 'nap-context-save-result')) return;
-            memoryWritePending.delete(data.requestId);
-            clearTimeout(pending.timeout);
-            memoryPanelApi?.writeResponse(pending.frameName, pending.id, pending.action, data);
-            return;
-        }
-
-        if (data.type === 'nap-detailed-read-result' && memoryPending.has(data.requestId)) {
-            const pending = memoryPending.get(data.requestId);
-            if (String(data.characterId) !== pending.id) return;
-            memoryPending.delete(data.requestId);
-            clearTimeout(pending.timeout);
-            if (data.memory?.ok === true && String(data.memory.characterId) === pending.id) {
-                memoryPanelApi?.response(pending.frameName, pending.id, data.memory);
-            } else {
-                memoryPanelApi?.response(pending.frameName, pending.id, {
-                    ok: false, error: String(data.memory?.error || data.error || 'memory_unavailable'),
-                    retryable: data.memory?.retryable !== false
-                });
-            }
-            return;
-        }
-
-        if (data.type === 'nap-memory-read-result') {
-            const pending = memoryPending.get(data.requestId);
-            if (!pending) return;
-            if (data.characterId != null && String(data.characterId) !== pending.id) return;
-            memoryPending.delete(data.requestId);
-            clearTimeout(pending.timeout);
-            memoryPanelApi?.response(pending.frameName, pending.id, data);
-            return;
-        }
-
         // Detailed responses are matched by request AND selected character.
         if (['nap-detailed-read-result', 'nap-detailed-result',
              'nap-detailed-save-result'].includes(data.type)) {
@@ -1886,7 +1742,6 @@
             const expectedType = action === 'read' ? 'nap-detailed-read-result' :
                 action === 'update' ? 'nap-detailed-result' : 'nap-detailed-save-result';
             if (data.type !== expectedType) return;
-            adoptPiggybackMemory(data, detailedPending.characterId);
             detailedPending = null;
             clearTimeout(detailedTimeout);
             detailedTimeout = null;
@@ -1960,7 +1815,6 @@
             }
 
             bridgeReady = true;
-            memoryReadSupported = Array.isArray(data.caps) && data.caps.includes('memory-read');
             stopBridgePolling();
 
             characters = Array.isArray(data.characters)
@@ -1992,7 +1846,6 @@
                 }
             }
 
-            window.dispatchEvent(new Event('alai-memory-character-roster-ready'));
             const savedCharacter = recovery.selectedCharacter;
             characterSelect.value = [...characterSelect.options].some(option => option.value === savedCharacter)
                 ? savedCharacter : '';
@@ -2029,7 +1882,6 @@
             pendingRequestId &&
             data.requestId === pendingRequestId
         ) {
-            adoptPiggybackMemory(data, characterSelect.value);
             pendingRequestId = null;
             updateDetailedButtons();
 
@@ -2104,9 +1956,9 @@
 
 
     // ============================================================
-    // PERSONAL MEMORY PANEL — v1.11.5 READ-ONLY MEMORY DISPLAY
+    // PERSONAL MEMORY PANEL — v1.12.0 BASE UI ONLY
     // Separate from the existing Hotbuttons panel. The four text
-    // areas display native Perchance text; NO writes occur here.
+    // areas are local drafts; NO Perchance read/write occurs here.
     // ============================================================
     (function createPersonalMemoryPanel() {
         const STORAGE_KEY = 'alai-personal-memory-panel-ui-v1110';
@@ -2140,7 +1992,7 @@
             fontWeight: 'bold'
         });
         const title = document.createElement('span');
-        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.11.10)';
+        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.12.0)';
         const toggle = document.createElement('button');
         toggle.type = 'button';
         toggle.title = 'Collapse or expand memory panel';
@@ -2154,7 +2006,7 @@
         Object.assign(content.style, { paddingTop: '7px', display: 'grid', gap: '7px' });
         panel.appendChild(content);
         const notice = document.createElement('div');
-        notice.textContent = 'Memories are stored in this browser. Perchance only processes. Review drafts before saving locally.';
+        notice.textContent = 'UI preview only — not connected to Perchance; text is not saved.';
         Object.assign(notice.style, { color: '#bbb', fontSize: '10px' });
         content.appendChild(notice);
         function applyCollapsed() {
@@ -2170,120 +2022,21 @@
             persist();
             applyCollapsed();
         });
-        // Mirror the main Conversation Input character roster without changing its selection.
-        const memorySelectors = [];
-        const memoryFrames = new Map();
-        function cancelMemoryReads(frameName) {
-            for (const [requestId, item] of memoryPending) {
-                if (item.frameName !== frameName) continue;
-                clearTimeout(item.timeout);
-                memoryPending.delete(requestId);
-            }
-        }
-        function setStatus(frame, message, color = '#aaa') {
-            frame.status.textContent = message;
-            frame.status.style.color = color;
-        }
-        function clearFrame(frame, message) {
-            frame.personal.value = '';
-            frame.extended.value = '';
-            frame.personal.placeholder = message;
-            frame.extended.placeholder = message;
-            frame.lastStrings = null;
-            frame.snapshot = null;
-            frame.draft = null;
-            frame.lastWriteOutcome = false;
-            if (frame.preview) frame.preview.style.display = 'none';
-            setStatus(frame, message);
-        }
-        function refreshMemoryCharacters() {
-            if (!bridgeReady) {
-                for (const { name, select } of memorySelectors) {
-                    select.replaceChildren(new Option('Connect Perchance...', ''));
-                    select.disabled = true;
-                    const frame = memoryFrames.get(name);
-                    if (frame) setStatus(frame, 'Perchance disconnected — local memory retained');
-                }
-                return;
-            }
-            const available = [...characterSelect.options].filter(option => option.value);
-            for (const { name, select } of memorySelectors) {
-                const previous = select.value || String(state['character' + name] || '');
-                const previousName = String(state['characterName' + name] || '');
-                const match = characters.find(c => String(c.id) === previous);
-                const safeId = match && previousName && String(match.name) === previousName ? previous : '';
-                select.replaceChildren(new Option(
-                    available.length ? 'Choose character...' : 'Connect Perchance...', ''
-                ));
-                for (const option of available) select.appendChild(new Option(option.textContent, option.value));
-                select.disabled = !available.length;
-                select.value = available.some(option => option.value === safeId) ? safeId : '';
-                if (!select.value && previous) {
-                    state['character' + name] = '';
-                    state['characterName' + name] = '';
-                    persist();
-                }
-                const frame = memoryFrames.get(name);
-                if (frame) {
-                    cancelMemoryReads(name);
-                    clearFrame(frame, select.value ? 'Loading local memories…' :
-                        previous ? 'Character identity needs re-selection' : 'Choose a character');
-                    if (select.value) {
-                        loadLocalFrame(frame);
-                    }
-                }
-            }
-        }
         for (const name of ['Alex', 'Aiko']) {
             const frame = document.createElement('section');
             Object.assign(frame.style, {
                 border: '1px solid #555', borderRadius: '7px',
                 overflow: 'hidden', minWidth: '0'
             });
-            const frameHeader = document.createElement('div');
+            const frameHeader = document.createElement('button');
+            frameHeader.type = 'button';
             Object.assign(frameHeader.style, {
-                display: 'flex', alignItems: 'center', gap: '6px',
-                width: '100%', boxSizing: 'border-box', padding: '5px 7px',
-                background: '#383838', color: '#eee', fontWeight: 'bold'
+                width: '100%', textAlign: 'left', padding: '7px',
+                background: '#383838', color: '#eee', border: 0,
+                cursor: 'pointer', fontWeight: 'bold'
             });
-            const collapseButton = document.createElement('button');
-            collapseButton.type = 'button';
-            collapseButton.title = 'Collapse or expand ' + name;
-            Object.assign(collapseButton.style, {
-                background: 'transparent', color: '#eee', border: 0,
-                padding: '2px', cursor: 'pointer', fontWeight: 'bold'
-            });
-            const nameLabel = document.createElement('span');
-            nameLabel.textContent = name;
-            const memoryCharacterSelect = document.createElement('select');
-            memoryCharacterSelect.title = 'Perchance character for ' + name + ' memories';
-            memoryCharacterSelect.setAttribute('aria-label', name + ' Perchance character');
-            Object.assign(memoryCharacterSelect.style, {
-                marginLeft: 'auto', minWidth: '0', width: '55%',
-                maxWidth: '220px', background: '#424242', color: '#fff',
-                border: '1px solid #777', borderRadius: '5px',
-                fontSize: '10px', padding: '4px'
-            });
-            memoryCharacterSelect.addEventListener('change', () => {
-                const selected = characters.find(c => String(c.id) === memoryCharacterSelect.value);
-                state['character' + name] = selected ? String(selected.id) : '';
-                state['characterName' + name] = selected ? String(selected.name) : '';
-                persist();
-                const frame = memoryFrames.get(name);
-                cancelMemoryReads(name);
-                clearFrame(frame, selected ? 'Local memory ready' : 'Choose a character');
-                if (selected) loadLocalFrame(frame);
-            });
-            frameHeader.append(collapseButton, nameLabel, memoryCharacterSelect);
-            memorySelectors.push({ name, select: memoryCharacterSelect });
             const body = document.createElement('div');
             Object.assign(body.style, { padding: '7px', display: 'grid', gap: '7px' });
-            const frameState = {
-                name, select: memoryCharacterSelect, personal: null, extended: null,
-                status: null, lastStrings: null, lastRead: 0,
-                snapshot: null, draft: null, lastWriteOutcome: false, preview: null, draftPersonal: null,
-                draftExtended: null, generateButton: null, saveButton: null
-            };
             for (const field of ['Personal Memory', 'Extended Personal Memory']) {
                 const group = document.createElement('div');
                 Object.assign(group.style, { display: 'grid', gap: '4px', minWidth: '0' });
@@ -2291,8 +2044,7 @@
                 label.textContent = field;
                 const textarea = document.createElement('textarea');
                 textarea.setAttribute('aria-label', name + ' ' + field);
-                textarea.placeholder = 'Choose a character';
-                textarea.readOnly = false;
+                textarea.placeholder = 'Not connected to Perchance';
                 textarea.rows = field === 'Personal Memory' ? 4 : 6;
                 Object.assign(textarea.style, {
                     boxSizing: 'border-box', width: '100%', minWidth: '100px',
@@ -2301,322 +2053,24 @@
                     background: '#1e1e1e', color: '#eee',
                     font: '12px/1.4 system-ui, sans-serif'
                 });
-                frameState[field === 'Personal Memory' ? 'personal' : 'extended'] = textarea;
                 group.append(label, textarea);
                 body.appendChild(group);
             }
-            // Drafts are deliberately separate from the read-only stored fields.
-            const actions = document.createElement('div');
-            Object.assign(actions.style, { display: 'flex', gap: '5px', flexWrap: 'wrap', alignItems: 'center' });
-            const mode = document.createElement('select');
-            mode.setAttribute('aria-label', name + ' memory generation mode');
-            for (const [value, label] of [['both', 'Both memories'], ['personal', 'Personal only'], ['extended', 'Extended only']]) {
-                mode.appendChild(new Option(label, value));
-            }
-            const generateButton = document.createElement('button');
-            generateButton.type = 'button';
-            generateButton.textContent = 'Generate draft';
-            const saveButton = document.createElement('button');
-            saveButton.type = 'button';
-            saveButton.textContent = 'Save locally';
-            saveButton.disabled = true;
-            for (const button of [generateButton, saveButton]) {
-                Object.assign(button.style, { padding: '5px 7px', color: '#eee',
-                    background: '#454545', border: '1px solid #777', borderRadius: '5px',
-                    cursor: 'pointer' });
-            }
-            actions.append(mode, generateButton, saveButton);
-            body.appendChild(actions);
-            const preview = document.createElement('div');
-            Object.assign(preview.style, { display: 'none', gap: '5px' });
-            const draftPersonal = document.createElement('textarea');
-            const draftExtended = document.createElement('textarea');
-            for (const [field, textarea] of [['Personal draft', draftPersonal], ['Extended draft', draftExtended]]) {
-                const label = document.createElement('label');
-                label.textContent = field + ' (editable, NOT SAVED)';
-                textarea.setAttribute('aria-label', name + ' ' + field);
-                textarea.rows = field === 'Personal draft' ? 5 : 7;
-                Object.assign(textarea.style, { boxSizing: 'border-box', width: '100%',
-                    minHeight: '65px', resize: 'vertical', padding: '6px',
-                    border: '1px solid #777', borderRadius: '5px',
-                    background: '#202020', color: '#fff', font: '12px/1.4 system-ui, sans-serif' });
-                preview.append(label, textarea);
-            }
-            body.appendChild(preview);
-            Object.assign(frameState, { preview, draftPersonal, draftExtended, generateButton, saveButton });
-            for (const field of ['personal', 'extended']) frameState[field].addEventListener('input', () => {
-                const id = frameState.select.value;
-                if (!id) return;
-                memoryRecords[id] = { ...localMemory(id), [field]: frameState[field].value };
-                persistMemoryRecords();
-                setStatus(frameState, 'LOCAL EDIT SAVED');
-            });
-            generateButton.addEventListener('click', () => requestMemoryWrite(frameState, 'generate', mode.value));
-            saveButton.addEventListener('click', () => requestMemoryWrite(frameState, 'save', mode.value));
-            const status = document.createElement('div');
-            status.textContent = 'Choose a character';
-            Object.assign(status.style, { fontSize: '10px', color: '#aaa' });
-            frameState.status = status;
-            body.appendChild(status);
-            memoryFrames.set(name, frameState);
             frame.append(frameHeader, body);
             content.appendChild(frame);
             const key = 'collapsed' + name;
             function applyFrame() {
                 body.style.display = state[key] ? 'none' : 'grid';
-                collapseButton.textContent = state[key] ? '▸' : '▾';
-                collapseButton.setAttribute('aria-expanded', String(!state[key]));
+                frameHeader.textContent = (state[key] ? '▸  ' : '▾  ') + name;
+                frameHeader.setAttribute('aria-expanded', String(!state[key]));
             }
-            collapseButton.addEventListener('click', () => {
+            frameHeader.addEventListener('click', () => {
                 state[key] = !state[key];
                 persist();
                 applyFrame();
             });
             applyFrame();
         }
-        function loadLocalFrame(frame) {
-            const record = localMemory(frame.select.value);
-            frame.personal.value = record.personal || '';
-            frame.extended.value = record.extended || '';
-            frame.lastStrings = { personal: frame.personal.value, extended: frame.extended.value };
-            frame.snapshot = null;
-            setStatus(frame, 'LOCAL — browser-stored memory loaded');
-        }
-        // Perchance generates drafts only; approved text stays in browser storage.
-        function requestMemoryWrite(frame, action, mode) {
-            const id = frame.select.value;
-            if (!id || !bridgeReady || !bridgeWindow || bridgeWindow.closed) {
-                setStatus(frame, 'Connect Perchance and select a character first', '#fca5a5');
-                return;
-            }
-            const record = characters.find(c => String(c.id) === id);
-            if (!record || String(record.name) !== String(state['characterName' + frame.name] || '')) {
-                setStatus(frame, 'Character identity changed — reselect before continuing', '#fca5a5');
-                return;
-            }
-            if ([...memoryWritePending.values()].some(p => p.frameName === frame.name) || pendingRequestId || detailedPending) return;
-            // A pending read can arrive after Generate was clicked and mask the
-            // actual failure with a normal "Read ... duplicate name" status.
-            cancelMemoryReads(frame.name);
-            frame.lastWriteOutcome = false;
-            const requestId = crypto.randomUUID();
-            const payload = { requestId, token: BRIDGE_TOKEN, characterId: Number(id) };
-            if (action === 'generate') {
-                const recentMessagesText = contextBox.value.trim();
-                if (!recentMessagesText || recentMessagesText.length > MAX_RECENT_CHARS) {
-                    setStatus(frame, 'Capture conversation input first (max ' + MAX_RECENT_CHARS + ' chars)', '#fca5a5');
-                    return;
-                }
-                payload.type = 'nap-context-update';
-                payload.memoryMode = mode;
-                payload.recentMessagesText = recentMessagesText;
-                payload.previousPersonal = frame.personal.value;
-                payload.previousExtended = frame.extended.value;
-                frame.draft = null;
-                frame.preview.style.display = 'none';
-                frame.saveButton.disabled = true;
-            } else {
-                const draft = frame.draft;
-                if (!draft || draft.id !== id || draft.mode !== mode) {
-                    setStatus(frame, 'Generate a new draft for this mode first', '#fca5a5');
-                    return;
-                }
-                const personal = frame.draftPersonal.value.trim();
-                const extended = frame.draftExtended.value.trim();
-                if ((draft.hasPersonal && !personal) || (draft.hasExtended && !extended)) {
-                    setStatus(frame, 'Approved memory cannot be blank', '#fca5a5');
-                    return;
-                }
-                if (!window.confirm('Save approved ' + frame.name + ' memories in this browser only?')) return;
-                const current = localMemory(id);
-                memoryRecords[id] = {
-                    personal: draft.hasPersonal ? personal : current.personal,
-                    extended: draft.hasExtended ? extended : current.extended
-                };
-                try { persistMemoryRecords(); } catch (error) {
-                    setStatus(frame, 'Local save failed: ' + String(error), '#fca5a5');
-                    return;
-                }
-                frame.draft = null;
-                frame.preview.style.display = 'none';
-                frame.saveButton.disabled = true;
-                frame.lastWriteOutcome = false;
-                loadLocalFrame(frame);
-                setStatus(frame, 'SAVED LOCALLY — never sent to Perchance', '#86efac');
-                return;
-                frame.saveButton.disabled = true;
-            }
-            const timeout = setTimeout(() => {
-                if (!memoryWritePending.has(requestId)) return;
-                memoryWritePending.delete(requestId);
-                frame.generateButton.disabled = false;
-                frame.saveButton.disabled = true; // Unknown save outcome: re-read before retry.
-                frame.draft = null;
-                frame.lastWriteOutcome = true;
-                setStatus(frame, 'TIMEOUT — outcome unknown; refresh memories before retrying', '#fca5a5');
-            }, 180000);
-            memoryWritePending.set(requestId, { frameName: frame.name, id, action, timeout });
-            frame.generateButton.disabled = true;
-            frame.saveButton.disabled = true;
-            setStatus(frame, action === 'generate' ? 'Generating memory draft…' : 'Saving approved memories…', '#facc15');
-            try { bridgeWindow.postMessage(payload, WRAPPER_ORIGIN); }
-            catch (error) {
-                clearTimeout(timeout);
-                memoryWritePending.delete(requestId);
-                frame.generateButton.disabled = false;
-                frame.lastWriteOutcome = true;
-                setStatus(frame, 'Bridge send failed: ' + String(error), '#fca5a5');
-            }
-        }
-        function queueRead(frame, force = false) {
-            // Perchance native memory is not canonical; never poll it.
-            return;
-            const id = frame.select.value;
-            if (!id || !bridgeReady || !bridgeWindow || bridgeWindow.closed) return;
-            const record = characters.find(c => String(c.id) === id);
-            if (!record || String(record.name) !== String(state['characterName' + frame.name] || '')) {
-                frame.select.value = '';
-                state['character' + frame.name] = '';
-                state['characterName' + frame.name] = '';
-                persist();
-                clearFrame(frame, 'Identity changed — choose again');
-                return;
-            }
-            // Do not start background/focus reads after a write outcome: queueRead
-            // itself sets 'Reading Perchance' before any response arrives.
-            if (frame.lastWriteOutcome) return;
-            if ([...memoryWritePending.values()].some(item => item.frameName === frame.name)) return;
-            if ([...memoryPending.values()].some(item => item.frameName === frame.name)) return;
-            if (!force && Date.now() - frame.lastRead < 10000) return;
-            frame.lastRead = Date.now();
-            setStatus(frame, 'Reading Perchance…', '#facc15');
-            readPerchanceMemory(frame.name, id);
-        }
-        memoryPanelApi = {
-            writeResponse(name, id, action, data) {
-                const frame = memoryFrames.get(name);
-                if (!frame || frame.select.value !== id) return;
-                frame.generateButton.disabled = false;
-                frame.lastWriteOutcome = true;
-                if (action === 'generate') {
-                    const update = data.memoryUpdate;
-                    if (!data.ok && !update) {
-                        setStatus(frame, 'Generation failed: ' + String(data.error || 'unknown'), '#fca5a5');
-                        return;
-                    }
-                    if (!update || (typeof update.personal !== 'string' && typeof update.extended !== 'string')) {
-                        setStatus(frame, 'No memory generated: ' +
-                            [update?.personalError, update?.extendedError, data.error].filter(Boolean).join('; '), '#fca5a5');
-                        return;
-                    }
-                    const hasPersonal = typeof update.personal === 'string';
-                    const hasExtended = typeof update.extended === 'string';
-                    frame.draftPersonal.value = hasPersonal ? update.personal : '';
-                    frame.draftExtended.value = hasExtended ? update.extended : '';
-                    frame.draftPersonal.readOnly = !hasPersonal;
-                    frame.draftExtended.readOnly = !hasExtended;
-                    frame.preview.style.display = 'grid';
-                    frame.draft = {
-                        id, mode: data.memoryMode || (hasPersonal && hasExtended ? 'both' : hasPersonal ? 'personal' : 'extended'),
-                        hasPersonal, hasExtended,
-                        previousPersonal: String(update.previousPersonal ?? ''),
-                        previousExtended: String(update.previousExtended ?? ''),
-                        memVersion: Number.isFinite(Number(data.memVersion)) ? Number(data.memVersion) : null
-                    };
-                    frame.saveButton.disabled = false;
-                    setStatus(frame, 'DRAFT ONLY — review before Save' +
-                        (update.personalError ? ' · P: ' + update.personalError : '') +
-                        (update.extendedError ? ' · E: ' + update.extendedError : ''), '#86efac');
-                } else if (data.ok) {
-                    frame.draft = null;
-                    frame.preview.style.display = 'none';
-                    frame.saveButton.disabled = true;
-                    setStatus(frame, 'SAVED — refreshing stored memories…', '#86efac');
-                    frame.lastRead = 0;
-                    queueRead(frame, true);
-                } else {
-                    frame.draft = null;
-                    frame.saveButton.disabled = true;
-                    setStatus(frame, data.conflict ?
-                        'CONFLICT — stored memory changed. Refresh and generate again; nothing overwritten.' :
-                        'Save failed: ' + String(data.error || 'unknown'), '#fca5a5');
-                }
-            },
-            snapshot(id, data) {
-                return; // Ignore Perchance-native memory fields.
-                for (const frame of memoryFrames.values()) {
-                    if (frame.select.value !== id) continue;
-                    cancelMemoryReads(frame.name);
-                    this.response(frame.name, id, data);
-                }
-            },
-            disconnected() {
-                for (const frame of memoryFrames.values()) setStatus(frame, 'Perchance disconnected — local memory retained');
-            },
-            response(name, id, data) {
-                const frame = memoryFrames.get(name);
-                if (!frame || frame.select.value !== id) return;
-                if (!data.ok) {
-                    const error = String(data.error || 'unknown');
-                    if (error === 'no_character') {
-                        frame.select.value = '';
-                        state['character' + name] = '';
-                        state['characterName' + name] = '';
-                        persist();
-                        clearFrame(frame, 'Character missing — choose again');
-                        return;
-                    }
-                    if (frame.lastWriteOutcome) return;
-                    setStatus(frame, 'Read failed: ' + error +
-                        (data.retryable ? ' (retryable)' : ''), '#fca5a5');
-                    return;
-                }
-                const record = characters.find(c => String(c.id) === id);
-                if (!record || String(record.name) !== String(data.characterName) ||
-                    String(record.name) !== String(state['characterName' + name] || '')) {
-                    frame.select.value = '';
-                    state['character' + name] = '';
-                    state['characterName' + name] = '';
-                    persist();
-                    clearFrame(frame, 'Identity mismatch — choose again');
-                    return;
-                }
-                if (typeof data.personal !== 'string' || typeof data.extended !== 'string') {
-                    setStatus(frame, 'Unexpected memory response', '#fca5a5');
-                    return;
-                }
-                frame.snapshot = data;
-                // Successful polling updates stored text, but should not erase the
-                // last Generate/Save outcome; leave it visible until user action.
-                const keepOutcome = frame.lastWriteOutcome === true;
-                if (!frame.lastStrings || frame.lastStrings.personal !== data.personal ||
-                    frame.lastStrings.extended !== data.extended) {
-                    frame.personal.value = data.personal;
-                    frame.extended.value = data.extended;
-                    frame.lastStrings = { personal: data.personal, extended: data.extended };
-                }
-                frame.personal.placeholder = 'Nothing stored yet';
-                frame.extended.placeholder = 'Nothing stored yet';
-                const stamp = x => x == null ? 'no stamp' : new Date(Number(x)).toLocaleTimeString();
-                // Native defaults differ: personal runs unless "no";
-                // extended runs only when explicitly "yes".
-                const personalOff = data.personalEnabled === 'no' ? ' (updates off)' : '';
-                const extendedOff = data.extendedEnabled === 'yes' ? '' : ' (updates off)';
-                const duplicateName = characters.filter(c =>
-                    String(c.name) === String(record.name)).length > 1;
-                const identityWarning = duplicateName ?
-                    ' · Duplicate name: verify character #' + id : '';
-                if (keepOutcome) return;
-                setStatus(frame, 'Read ' + new Date().toLocaleTimeString() +
-                    ' · P: ' + data.personal.length + ' chars' + personalOff +
-                    ' [' + stamp(data.personalUpdatedAt) + ']' +
-                    ' · E: ' + data.extended.length + ' chars' + extendedOff +
-                    ' [' + stamp(data.extendedUpdatedAt) + ']' + identityWarning,
-                    duplicateName ? '#facc15' : '#86efac');
-            }
-        };
-        window.addEventListener('alai-memory-character-roster-ready', refreshMemoryCharacters);
-        refreshMemoryCharacters();
         let dragging = null;
         header.addEventListener('pointerdown', e => {
             if (e.target === toggle || toggle.contains(e.target) || e.button !== 0) return;
