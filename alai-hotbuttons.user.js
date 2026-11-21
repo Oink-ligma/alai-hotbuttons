@@ -553,13 +553,9 @@
         outline: 'none'
     });
 
-    // Keep captured chat separate from the editable main-panel addition.
-    // This prevents repeated capture updates from duplicating the extra text.
+    // Conversation Input is exclusively the captured chat; supplemental text
+    // is injected only into the outgoing ChatGPT context envelope.
     let capturedConversationText = '';
-    function composeConversationInput() {
-        const extra = extraInputBox.value.trim();
-        return extra ? [capturedConversationText, '--- Additional Input ---', extra].filter(Boolean).join('\n\n') : capturedConversationText;
-    }
 
     // Preserve the reader's position when replacing captured conversation text.
     // If already at the bottom, follow newly appended content instead.
@@ -568,7 +564,7 @@
         const previousMax = Math.max(0, contextBox.scrollHeight - contextBox.clientHeight);
         const wasAtBottom = previousMax - previousTop <= 3;
         capturedConversationText = text;
-        contextBox.value = composeConversationInput();
+        contextBox.value = text;
         saveConversationSnapshot();
         contextBox.scrollTop = wasAtBottom
             ? contextBox.scrollHeight
@@ -632,8 +628,8 @@
     const EXTRA_INPUT_KEY = 'alai-hotbuttons-extra-input-v1';
     const extraInputBox = document.createElement('textarea');
     extraInputBox.id = 'alai-hotbuttons-extra-input';
-    extraInputBox.placeholder = 'Additional text to include with every Conversation Input update';
-    extraInputBox.setAttribute('aria-label', 'Additional Conversation Input');
+    extraInputBox.placeholder = 'Additional context for outgoing ChatGPT messages only';
+    extraInputBox.setAttribute('aria-label', 'Additional Outgoing Context');
     Object.assign(extraInputBox.style, {
         width: '100%', minHeight: '70px', height: '90px', resize: 'vertical',
         boxSizing: 'border-box', background: '#1e1e1e', color: '#fff',
@@ -644,7 +640,7 @@
     catch (error) { console.warn('[ALAI] Extra input restore unavailable:', error); }
     const extraInputLabel = document.createElement('label');
     extraInputLabel.htmlFor = extraInputBox.id;
-    extraInputLabel.textContent = 'Additional Conversation Input';
+    extraInputLabel.textContent = 'Additional Outgoing Context';
     Object.assign(extraInputLabel.style, { width: '100%', color: '#b9c8db', fontSize: '10px', fontWeight: 'bold' });
     panelContent.append(extraInputLabel, extraInputBox);
     const clearAllTextButton = document.createElement('button');
@@ -674,14 +670,15 @@
     extraInputBox.addEventListener('input', () => {
         try { localStorage.setItem(EXTRA_INPUT_KEY, extraInputBox.value); }
         catch (error) { console.warn('[ALAI] Extra input save unavailable:', error); }
-        updateConversationInput(capturedConversationText);
     });
-    // Recompose restored conversation once the extra input is available.
-    if (extraInputBox.value.trim()) {
-        const marker = '\n\n--- Additional Input ---\n\n';
-        const markerIndex = capturedConversationText.lastIndexOf(marker);
-        if (markerIndex >= 0) capturedConversationText = capturedConversationText.slice(0, markerIndex);
-        updateConversationInput(capturedConversationText);
+    // Remove a prior version's appended extra text from restored capture.
+    const legacyExtraMarker = '\n\n--- Additional Input ---\n\n';
+    const legacyExtraIndex = capturedConversationText.lastIndexOf(legacyExtraMarker);
+    if (legacyExtraIndex >= 0 && extraInputBox.value.trim() &&
+        capturedConversationText.slice(legacyExtraIndex + legacyExtraMarker.length).trim() === extraInputBox.value.trim()) {
+        capturedConversationText = capturedConversationText.slice(0, legacyExtraIndex);
+        contextBox.value = capturedConversationText;
+        saveConversationSnapshot();
     }
 
     // Conversation section is mounted after bridge controls are created.
@@ -1328,8 +1325,10 @@
             typeof message.content.parts[0] !== 'string') return null;
         const userText = message.content.parts[0];
         if (!userText.trim() || userText.includes(contextStart)) return null;
-        const context = detailedBox.value.trim();
-        if (!context) return null;
+        const detailed = detailedBox.value.trim();
+        const extra = extraInputBox.value.trim();
+        if (!detailed && !extra) return null;
+        const context = [detailed, extra ? '[ADDITIONAL OUTGOING CONTEXT]\n' + extra + '\n[END ADDITIONAL OUTGOING CONTEXT]' : ''].filter(Boolean).join('\n\n');
         message.content.parts[0] = makeInjectedText(context, userText);
         return JSON.stringify(payload);
     }
@@ -1375,8 +1374,8 @@
             try {
                 const replacement = rewriteOutgoing(bodyText);
                 if (!replacement) return originalChatFetch.apply(self, originalArgs);
-                injectionStatus.textContent = 'Injected Detailed Context into outgoing request (' +
-                    detailedBox.value.trim().length + ' context chars)';
+                injectionStatus.textContent = 'Injected outgoing context (' +
+                    (detailedBox.value.trim().length + extraInputBox.value.trim().length) + ' context chars)';
                 injectionStatus.style.color = '#86efac';
                 if (input instanceof Request) {
                     const request = new Request(input, { ...(init || {}), body: replacement });
