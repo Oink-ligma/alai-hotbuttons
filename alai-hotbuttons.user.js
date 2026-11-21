@@ -1196,6 +1196,19 @@
     contextPanelContent.appendChild(section('Outgoing Injection', 'injectionCollapsed', [injectionLabel, injectionStatus]));
 
     // The textboxes are one workspace, not per-chat or per-character snapshots.
+    // Persistent pre-update backups for all locally managed memory textboxes.
+    const MEMORY_BACKUP_KEY = 'alai-memory-backups-v1';
+    function backupMemory(field, value) {
+        try {
+            const backups = JSON.parse(localStorage.getItem(MEMORY_BACKUP_KEY) || '{}');
+            const entries = Array.isArray(backups[field]) ? backups[field] : [];
+            if (value && entries[entries.length - 1]?.text !== value) {
+                entries.push({ savedAt: new Date().toISOString(), text: value });
+                backups[field] = entries.slice(-10);
+                localStorage.setItem(MEMORY_BACKUP_KEY, JSON.stringify(backups));
+            }
+        } catch (error) { console.warn('[ALAI] Memory backup failed:', error); }
+    }
     function saveCharacterSnapshot() {
         recovery.basic = resultBox.value;
         recovery.detailed = detailedBox.value;
@@ -1897,8 +1910,11 @@
                     memVersionDetailed: Number(data.memVersionDetailed) || 0
                 };
                 detailedRuns = 0;
-                detailedBox.value = previousDetailed;
-                saveCharacterSnapshot();
+                // A read must not erase a locally saved working copy.
+                if (!detailedBox.value.trim() && previousDetailed.trim()) {
+                    detailedBox.value = previousDetailed;
+                    saveCharacterSnapshot();
+                }
                 setDetailedStatus('READ — stored context loaded' +
                     (data.hasDetailedPrompt ? '' : '; prompt MISSING') +
                     (data.enabled === false ? '; disabled' : ''), '#86efac');
@@ -1909,6 +1925,7 @@
                     previousDetailed: String(data.detailed),
                     memVersionDetailed: Number(data.memVersionDetailed) || 0
                 };
+                backupMemory('detailed', detailedBox.value);
                 detailedBox.value = data.detailed;
                 saveCharacterSnapshot();
                 detailedRuns++;
@@ -2043,6 +2060,7 @@
                 data.ok &&
                 typeof data.basic === 'string'
             ) {
+                backupMemory('basic', resultBox.value);
                 resultBox.value = data.basic;
                 saveCharacterSnapshot();
 
@@ -2390,6 +2408,11 @@
                 if (typeof data[slot] !== 'string' || !data[slot].trim()) continue;
                 rec[slot] = data[slot];
                 count++;
+            }
+            if (count) {
+                for (const slot of ['personal', 'extended']) {
+                    if (rec[slot] !== old[slot]) backupMemory(pending.name + '-' + slot, old[slot]);
+                }
             }
             if (count && store()) {
                 for (const slot of ['personal', 'extended']) f.textareas[slot].value = rec[slot] || '';
