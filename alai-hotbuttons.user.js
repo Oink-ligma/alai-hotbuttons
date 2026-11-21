@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.11.8
+// @version      1.11.9
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.11.8)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.11.9)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -2128,7 +2128,7 @@
             fontWeight: 'bold'
         });
         const title = document.createElement('span');
-        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.11.8)';
+        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.11.9)';
         const toggle = document.createElement('button');
         toggle.type = 'button';
         toggle.title = 'Collapse or expand memory panel';
@@ -2452,7 +2452,9 @@
                 clearFrame(frame, 'Identity changed — choose again');
                 return;
             }
-            // Background reads must never overwrite an active generation/save status.
+            // Do not start background/focus reads after a write outcome: queueRead
+            // itself sets 'Reading Perchance' before any response arrives.
+            if (frame.lastWriteOutcome) return;
             if ([...memoryWritePending.values()].some(item => item.frameName === frame.name)) return;
             if ([...memoryPending.values()].some(item => item.frameName === frame.name)) return;
             if (!force && Date.now() - frame.lastRead < 10000) return;
