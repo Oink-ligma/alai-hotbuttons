@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALAI Hotbuttons
 // @namespace    https://chatgpt.com/
-// @version      1.12.0
+// @version      1.12.1
 // @description  Draggable shortcuts, five-reply capture with bridge size guard, Perchance context updates
 // @match        https://chatgpt.com/*
 // @grant        none
@@ -98,7 +98,7 @@
     }
 
     const dragHandle = document.createElement('div');
-    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.12.0)';
+    dragHandle.textContent = '⋮⋮  Alex and Aiko’s Hotbuttons (v1.12.1)';
 
     Object.assign(dragHandle.style, {
         width: '100%',
@@ -360,6 +360,98 @@
             )
         );
     }
+
+    // Context Memories has its own movable, resizable window.
+    // Hotbuttons retains only Bill's composer shortcuts.
+    const CONTEXT_PANEL_KEY = 'alai-context-memories-panel-v1';
+    let contextPanelState = {};
+    try { contextPanelState = JSON.parse(localStorage.getItem(CONTEXT_PANEL_KEY)) || {}; } catch (_) {}
+    function persistContextPanel() {
+        try { localStorage.setItem(CONTEXT_PANEL_KEY, JSON.stringify(contextPanelState)); } catch (_) {}
+    }
+    const contextPanel = document.createElement('div');
+    contextPanel.id = 'alai-context-memories-panel';
+    Object.assign(contextPanel.style, {
+        position: 'fixed', left: '20px', top: '110px', zIndex: '9998',
+        width: (Number(contextPanelState.width) || 350) + 'px',
+        height: (Number(contextPanelState.height) || 420) + 'px',
+        minWidth: '270px', minHeight: '45px', maxWidth: '95vw', maxHeight: '90vh',
+        resize: 'both', overflow: 'auto', boxSizing: 'border-box',
+        background: '#292929', color: '#eee', border: '1px solid #666',
+        borderRadius: '9px', boxShadow: '0 4px 18px #0005', padding: '7px',
+        font: '12px system-ui, sans-serif'
+    });
+    if (Number.isFinite(contextPanelState.left) && Number.isFinite(contextPanelState.top)) {
+        contextPanel.style.left = contextPanelState.left + 'px';
+        contextPanel.style.top = contextPanelState.top + 'px';
+    }
+    const contextPanelHeader = document.createElement('div');
+    Object.assign(contextPanelHeader.style, {
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        background: '#383838', borderRadius: '6px', padding: '6px',
+        cursor: 'move', userSelect: 'none', touchAction: 'none', fontWeight: 'bold'
+    });
+    const contextPanelTitle = document.createElement('span');
+    contextPanelTitle.textContent = '⋮⋮  Alex & Aiko — Context Memories (v1.12.1)';
+    const contextPanelToggle = document.createElement('button');
+    contextPanelToggle.type = 'button';
+    contextPanelToggle.title = 'Collapse or expand Context Memories';
+    Object.assign(contextPanelToggle.style, {
+        color: '#eee', background: 'transparent', border: 0, cursor: 'pointer', fontSize: '15px'
+    });
+    contextPanelHeader.append(contextPanelTitle, contextPanelToggle);
+    contextPanel.appendChild(contextPanelHeader);
+    const contextPanelContent = document.createElement('div');
+    Object.assign(contextPanelContent.style, {
+        paddingTop: '7px', display: 'flex', flexDirection: 'column', gap: '7px'
+    });
+    contextPanel.appendChild(contextPanelContent);
+    function applyContextPanelCollapse() {
+        contextPanelContent.style.display = contextPanelState.collapsed ? 'none' : 'flex';
+        contextPanelToggle.textContent = contextPanelState.collapsed ? '▸' : '▾';
+        contextPanel.style.resize = contextPanelState.collapsed ? 'horizontal' : 'both';
+        contextPanel.style.height = contextPanelState.collapsed ? 'auto' :
+            (Number(contextPanelState.height) || 420) + 'px';
+    }
+    contextPanelToggle.addEventListener('pointerdown', e => e.stopPropagation());
+    contextPanelToggle.addEventListener('click', () => {
+        contextPanelState.collapsed = !contextPanelState.collapsed;
+        persistContextPanel();
+        applyContextPanelCollapse();
+    });
+    let contextDragging = null;
+    contextPanelHeader.addEventListener('pointerdown', e => {
+        if (e.target === contextPanelToggle || e.button !== 0) return;
+        const rect = contextPanel.getBoundingClientRect();
+        contextDragging = { x: e.clientX, y: e.clientY, left: rect.left, top: rect.top };
+        contextPanelHeader.setPointerCapture(e.pointerId);
+        e.preventDefault();
+    });
+    contextPanelHeader.addEventListener('pointermove', e => {
+        if (!contextDragging) return;
+        contextPanel.style.left = Math.max(0, Math.min(window.innerWidth - 60,
+            contextDragging.left + e.clientX - contextDragging.x)) + 'px';
+        contextPanel.style.top = Math.max(0, Math.min(window.innerHeight - 35,
+            contextDragging.top + e.clientY - contextDragging.y)) + 'px';
+    });
+    function endContextDrag() {
+        if (!contextDragging) return;
+        contextDragging = null;
+        contextPanelState.left = contextPanel.offsetLeft;
+        contextPanelState.top = contextPanel.offsetTop;
+        persistContextPanel();
+    }
+    contextPanelHeader.addEventListener('pointerup', endContextDrag);
+    contextPanelHeader.addEventListener('pointercancel', endContextDrag);
+    new ResizeObserver(() => {
+        if (!contextPanelState.collapsed) {
+            contextPanelState.width = contextPanel.offsetWidth;
+            contextPanelState.height = contextPanel.offsetHeight;
+            persistContextPanel();
+        }
+    }).observe(contextPanel);
+    document.body.appendChild(contextPanel);
+    applyContextPanelCollapse();
 
     // ============================================================
     // CONVERSATION INPUT
@@ -987,11 +1079,11 @@
     new MutationObserver(syncCaptureLight).observe(captureStatus, { attributes: true, attributeFilter: ['style'], childList: true });
     syncCaptureLight();
     const conversationSection = section('Conversation Input', 'conversationCollapsed', [captureStatus, contextBox, bridgeStatus], [connectionLight, connectIcon, characterAnchor], captureLight, captureTimer.label);
-    panelContent.appendChild(conversationSection);
+    contextPanelContent.appendChild(conversationSection);
     testButton.textContent = '↻'; testButton.title = 'Refresh Context Information';
     const basicLight = document.createElement('span');
     basicLight.textContent = '●'; basicLight.title = 'Context update status';
-    panelContent.appendChild(section('Context Information', 'basicCollapsed', [previewStatus, resultBox], [testButton], basicLight, basicTimer.label));
+    contextPanelContent.appendChild(section('Context Information', 'basicCollapsed', [previewStatus, resultBox], [testButton], basicLight, basicTimer.label));
 
     // Detailed Context diagnostics: manual, preview-only, never stored.
     const detailedLabel = document.createElement('div');
@@ -1027,7 +1119,7 @@
     detailedGenerateButton.textContent = '↻'; detailedGenerateButton.title = 'Generate Detailed Context from conversation and baseline';
     const detailedLight = document.createElement('span');
     detailedLight.textContent = '●'; detailedLight.title = 'Detailed update status';
-    panelContent.appendChild(section('Detailed Context', 'detailedCollapsed', [detailedStatus, detailedBox], [detailedTestButton, detailedGenerateButton], detailedLight, detailedTimer.label));
+    contextPanelContent.appendChild(section('Detailed Context', 'detailedCollapsed', [detailedStatus, detailedBox], [detailedTestButton, detailedGenerateButton], detailedLight, detailedTimer.label));
 
     // Outgoing injection: on by default. The current editable Detailed Context
     // textbox is the only context source; Perchance is not contacted on send.
@@ -1051,7 +1143,7 @@
             : 'Injection OFF — normal ChatGPT sends';
         injectionStatus.style.color = injectionEnabled ? '#86efac' : '#aaa';
     });
-    panelContent.appendChild(section('Outgoing Injection', 'injectionCollapsed', [injectionLabel, injectionStatus]));
+    contextPanelContent.appendChild(section('Outgoing Injection', 'injectionCollapsed', [injectionLabel, injectionStatus]));
 
     // The textboxes are one workspace, not per-chat or per-character snapshots.
     function saveCharacterSnapshot() {
@@ -1956,7 +2048,7 @@
 
 
     // ============================================================
-    // PERSONAL MEMORY PANEL — v1.12.0 BASE UI ONLY
+    // PERSONAL MEMORY PANEL — v1.12.1 BASE UI ONLY
     // Separate from the existing Hotbuttons panel. The four text
     // areas are local drafts; NO Perchance read/write occurs here.
     // ============================================================
@@ -1992,7 +2084,7 @@
             fontWeight: 'bold'
         });
         const title = document.createElement('span');
-        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.12.0)';
+        title.textContent = '⋮⋮  Alex & Aiko — Personal Memories (v1.12.1)';
         const toggle = document.createElement('button');
         toggle.type = 'button';
         toggle.title = 'Collapse or expand memory panel';
